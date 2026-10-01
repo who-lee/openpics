@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { OpenPicsBridge } from '../shared/bridge'
-import { COMMAND_CHANNEL, OPEN_FILES_CHANNEL, SCAN_PROGRESS_CHANNEL } from '../shared/bridge'
+import {
+  COMMAND_CHANNEL,
+  OPEN_FILES_CHANNEL,
+  SCAN_PROGRESS_CHANNEL,
+  TERMINAL_DATA_CHANNEL,
+  TERMINAL_EXIT_CHANNEL
+} from '../shared/bridge'
 
 /** Subscribes to a main-process channel and hands back an unsubscribe function. */
 function subscribe<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -60,6 +66,11 @@ const bridge: OpenPicsBridge = {
     cutoutAuto: (path, options) => ipcRenderer.invoke('edit:cutout-auto', path, options ?? {}),
     open: (path, edit) => ipcRenderer.invoke('edit:open', path, edit),
     brush: (edit, options) => ipcRenderer.invoke('edit:brush', edit, options),
+    selection: (edit, command) => ipcRenderer.invoke('edit:selection', edit, command),
+    output: (edit, settings) => ipcRenderer.invoke('edit:output', edit, settings),
+    undo: (edit) => ipcRenderer.invoke('edit:undo', edit),
+    redo: (edit) => ipcRenderer.invoke('edit:redo', edit),
+    history: (edit) => ipcRenderer.invoke('edit:history', edit),
     preview: (edit, options) => ipcRenderer.invoke('edit:preview', edit, options ?? {}),
     apply: (edit, options) => ipcRenderer.invoke('edit:apply', edit, options ?? {}),
     inspect: (edit) => ipcRenderer.invoke('edit:inspect', edit),
@@ -69,6 +80,16 @@ const bridge: OpenPicsBridge = {
   wallpaper: {
     get: () => ipcRenderer.invoke('wallpaper:get'),
     set: (path, fit) => ipcRenderer.invoke('wallpaper:set', path, fit ?? 'fill')
+  },
+  terminal: {
+    available: () => ipcRenderer.invoke('terminal:available'),
+    create: (options) => ipcRenderer.invoke('terminal:create', options ?? {}),
+    attach: (id) => ipcRenderer.invoke('terminal:attach', id),
+    write: (id, data) => ipcRenderer.invoke('terminal:write', id, data),
+    resize: (id, cols, rows) => ipcRenderer.invoke('terminal:resize', id, cols, rows),
+    kill: (id) => ipcRenderer.invoke('terminal:kill', id),
+    onData: (handler) => subscribe(TERMINAL_DATA_CHANNEL, handler),
+    onExit: (handler) => subscribe(TERMINAL_EXIT_CHANNEL, handler)
   },
   shell: {
     reveal: (path) => ipcRenderer.invoke('shell:reveal', path),

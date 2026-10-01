@@ -24,6 +24,20 @@ npm run dev
 
 `npm run dev` starts the app. `npm run build` produces `out/`.
 
+The app has one native dependency, `node-pty`, which backs the terminal. Two
+things about it are deliberate and should not be "fixed" without a reason:
+
+- Its install scripts are not in `allowScripts`, and it does not need them. It
+  ships prebuilt N-API binaries, which load without a compiler on Windows, macOS,
+  and Linux.
+- `build.npmRebuild` is `false` in `package.json`. electron-builder would
+  otherwise rebuild it from source with node-gyp and fail on any machine without
+  Visual Studio. Its prebuilds are Node-API, so they are ABI-stable across Node
+  and Electron versions and need no rebuild.
+
+Its files are also listed in `build.asarUnpack`, because the native binding and
+the `winpty-agent.exe` beside it cannot be loaded from inside an asar archive.
+
 ## Checks before you open a pull request
 
 ```bash

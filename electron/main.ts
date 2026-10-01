@@ -2,7 +2,14 @@ import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } fro
 import { statSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { DriveInfo, ScanProgress, ScanResult, Settings, ThumbnailStats, WallpaperFit } from '../shared/protocol'
-import type { ApplyOptions, BrushOptions, CutoutOptions, PreviewOptions } from '../shared/edit'
+import type {
+  ApplyOptions,
+  BrushOptions,
+  CutoutOptions,
+  OutputSettings,
+  PreviewOptions,
+  SelectionCommand
+} from '../shared/edit'
 import { isImage, THUMB_SCHEME } from '../shared/protocol'
 import { OPEN_FILES_CHANNEL, SCAN_PROGRESS_CHANNEL } from '../shared/bridge'
 import { cancelScan, listDrives, scanComputer, scanFolder } from './scanner'
@@ -12,13 +19,29 @@ import {
   handleBrush,
   handleClose,
   handleCutoutAuto,
+  handleHistory,
   handleInspect,
   handleOpen,
+  handleOutput,
   handlePreview,
-  handleReset
+  handleRedo,
+  handleReset,
+  handleSelection,
+  handleUndo
 } from './editing'
 import { clearThumbMemory, registerThumbScheme, setAllowedRoots, thumbStats } from './thumbs'
 import { defaultRoot, loadSettings, saveSettings } from './settings'
+import {
+  attachTerminal,
+  createTerminal,
+  killAllTerminals,
+  killTerminal,
+  killTerminalsForOwner,
+  resizeTerminal,
+  terminalAvailable,
+  writeTerminal
+} from './terminal'
+import type { TerminalCreateOptions } from '../shared/terminal'
 import { ensureFileAssociations, fileAssociationsEnabled, setFileAssociations } from './shellassoc'
 import { getWallpaper, setWallpaper } from '../core/wallpaper'
 import { buildTray, updateTray, type TrayRef } from './tray'
@@ -110,6 +133,12 @@ function createWindow(): BrowserWindow {
 
   hardenWindow(created)
 
+  // Captured now: a destroyed webContents cannot be asked for its id later.
+  const owner = created.webContents.id
+  // A reload wipes the renderer's tabs, so any shell it started would be orphaned
+  // with no way to reach it. Taking them down with the document is the safe read.
+  created.webContents.on('did-navigate', () => killTerminalsForOwner(owner))
+
   created.once('ready-to-show', () => {
     if (settings.launchMinimized) {
       created.hide()
@@ -130,6 +159,7 @@ function createWindow(): BrowserWindow {
   })
 
   created.on('closed', () => {
+    killTerminalsForOwner(owner)
     win = null
     // A closed window reloads with a fresh renderer, which must re-announce.
     rendererReady = false
@@ -274,6 +304,11 @@ function wireIpc(): void {
   ipcMain.handle('edit:cutout-auto', (_e, path: string, options: CutoutOptions) => handleCutoutAuto(path, options))
   ipcMain.handle('edit:open', (_e, path: string, edit?: string) => handleOpen(path, edit))
   ipcMain.handle('edit:brush', (_e, edit: string, options: BrushOptions) => handleBrush(edit, options))
+  ipcMain.handle('edit:selection', (_e, edit: string, command: SelectionCommand) => handleSelection(edit, command))
+  ipcMain.handle('edit:output', (_e, edit: string, settings: OutputSettings | null) => handleOutput(edit, settings))
+  ipcMain.handle('edit:undo', (_e, edit: string) => handleUndo(edit))
+  ipcMain.handle('edit:redo', (_e, edit: string) => handleRedo(edit))
+  ipcMain.handle('edit:history', (_e, edit: string) => handleHistory(edit))
   ipcMain.handle('edit:preview', (_e, edit: string, options: PreviewOptions) => handlePreview(edit, options))
   ipcMain.handle('edit:apply', (_e, edit: string, options: ApplyOptions) => handleApply(edit, options))
   ipcMain.handle('edit:inspect', (_e, edit?: string) => handleInspect(edit))
@@ -333,6 +368,24 @@ function wireIpc(): void {
     quitting = true
     app.quit()
   })
+
+  // The renderer never names a program: it opens a shell from the fixed list and
+  // then talks to it by opaque id. Every call is scoped to the window that owns
+  // the session, so one window cannot drive another's shell.
+  ipcMain.handle('terminal:available', () => terminalAvailable())
+  ipcMain.handle('terminal:create', (event, options: TerminalCreateOptions) =>
+    createTerminal(event.sender.id, options ?? {})
+  )
+  ipcMain.handle('terminal:attach', (event, id: string) => attachTerminal(event.sender.id, id))
+  ipcMain.handle('terminal:write', (event, id: string, data: string) => {
+    writeTerminal(event.sender.id, id, data)
+  })
+  ipcMain.handle('terminal:resize', (event, id: string, cols: number, rows: number) => {
+    resizeTerminal(event.sender.id, id, cols, rows)
+  })
+  ipcMain.handle('terminal:kill', (event, id: string) => {
+    killTerminal(event.sender.id, id)
+  })
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -387,6 +440,8 @@ if (!app.requestSingleInstanceLock()) {
   app.on('before-quit', () => {
     quitting = true
     disposeEdits()
+    // Shells are child processes of the app: they must not be left running.
+    killAllTerminals()
   })
 
   app.on('window-all-closed', () => {

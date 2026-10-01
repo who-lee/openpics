@@ -63,7 +63,11 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: 'dark',
   // The user asked for the context-menu entry up front, so it is on by default.
   // Settings can remove it again at any time.
-  shellIntegration: true
+  shellIntegration: true,
+  // Opt-in: a terminal escalates what the window can do, so it is off until the
+  // user asks for it rather than shipped on.
+  enableTerminal: false,
+  terminalHeight: 260
 }
 
 export const THUMB_SCHEME = 'opencpics-thumb'

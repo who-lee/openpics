@@ -36,11 +36,25 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
    */
   const [shellState, setShellState] = useState<'on' | 'off' | 'pending'>('pending')
   const [busy, setBusy] = useState(false)
+  const setTerminalOpen = useLibrary((s) => s.setTerminalOpen)
+  const [ptyState, setPtyState] = useState<'unknown' | 'ready' | 'unavailable'>('unknown')
 
   useEffect(() => {
     let live = true
     void bridge.shell.fileAssociations().then((enabled) => {
       if (live) setShellState(enabled ? 'on' : 'off')
+    })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  // Asked once, on open: the engine is a native module and can be missing on an
+  // unusual build. Reporting that here is better than a drawer that opens empty.
+  useEffect(() => {
+    let live = true
+    void bridge.terminal.available().then((ok) => {
+      if (live) setPtyState(ok ? 'ready' : 'unavailable')
     })
     return () => {
       live = false
@@ -106,6 +120,36 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             ? `, ${drives.length - readable.length} unreadable`
             : ''}
         </p>
+      </section>
+
+      <section>
+        <h2 className="text-[13px] font-semibold text-ink">Terminal</h2>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[12px] leading-[1.5] text-ink-2">
+              Opens a real shell in a drawer along the bottom of the window, running with your
+              normal user rights. Anything typed there can change files on this PC, so it is
+              off until you switch it on. Press Ctrl+` to show or hide it.
+            </p>
+            <p className="num mt-1 text-[11px] text-ink-3">
+              {ptyState === 'unknown'
+                ? 'checking…'
+                : ptyState === 'ready'
+                  ? 'ready'
+                  : 'unavailable on this system'}
+            </p>
+          </div>
+          <Toggle
+            label="Terminal"
+            checked={settings.enableTerminal}
+            onChange={(value) => {
+              // Turning it off closes the drawer; no shell is left running behind a
+              // setting that says there should be none.
+              if (!value) setTerminalOpen(false)
+              void patch({ enableTerminal: value })
+            }}
+          />
+        </div>
       </section>
 
       <section>

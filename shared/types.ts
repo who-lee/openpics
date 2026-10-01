@@ -92,6 +92,17 @@ export interface Settings {
    * HKCU. Only ever true because the user asked for it, and reversible.
    */
   shellIntegration: boolean
+  /**
+   * Whether a real shell can be opened inside the window. Off by default: a
+   * terminal runs programs with the user's full rights and is not a picture
+   * feature, so it stays opt-in and is confirmed the first time it is used.
+   */
+  enableTerminal: boolean
+  /**
+   * Height of the terminal drawer in pixels. Persisted so the panel comes back
+   * the size it was left, the way an editor's terminal panel does.
+   */
+  terminalHeight: number
 }
 
 export interface ThumbnailStats {

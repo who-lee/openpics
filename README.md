@@ -36,6 +36,7 @@ so there is no native image library to ship.
 | `Space` | Slideshow |
 | `I` | Details |
 | `S` | Sort |
+| `` Ctrl + ` `` | Terminal |
 | `?` | All shortcuts |
 
 To remove a background: press `E`, then **Remove the background**. Adjust
@@ -47,6 +48,12 @@ file alone. Nothing touches the disk until you do.
 
 **Set as wallpaper** stays disabled until you have saved a copy, because
 anything else would set the desktop to an image that only exists in memory.
+
+**Terminal** is off until you switch it on in Settings. It opens a real shell,
+PowerShell or cmd, in a drawer along the bottom of the window. It runs with
+your normal user rights, so anything typed in it can change files on this PC.
+The drawer keeps its scrollback while it is hidden, and its shells close with
+the window.
 
 ## The MCP server
 
