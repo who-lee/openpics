@@ -1,0 +1,89 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A superseded run is cancelled rather than left burning minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      # Bundling is where a passing typecheck can still hide a runtime failure:
+      # a lazy require survives as a string and is unresolvable in the packaged
+      # app. This step proves the bundle resolves.
+      - name: Package (unpacked)
+        run: npm run package:dir
+
+      - name: Verify the bundle loads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $main = 'out/main/index.js'
+          if (-not (Test-Path $main)) { throw "no bundle at $main" }
+          # A bare require of a relative path would resolve to a file that does
+          # not exist next to the bundle, and only at runtime.
+          $bare = Select-String -Path $main -Pattern 'require\("\./' -Quiet
+          if ($bare) { throw 'bundle contains a bare relative require' }
+          Write-Output 'bundle has no bare relative requires'
+
+  mcp:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build MCP server
+        run: npm run build:mcp
+
+      - name: Verify the MCP server starts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $server = 'dist-mcp/mcp/server.js'
+          if (-not (Test-Path $server)) { throw "no server at $server" }
+          # Start it and confirm it speaks MCP rather than crashing on load.
+          $p = Start-Process -FilePath node `
+            -ArgumentList $server -PassThru -NoNewWindow `
+            -RedirectStandardInput "$env:TEMP/mcp-in.txt" `
+            -RedirectStandardOutput "$env:TEMP/mcp-out.txt" `
+            -RedirectStandardError "$env:TEMP/mcp-err.txt"
+          Start-Sleep -Seconds 4
+          if ($p.HasExited) {
+            $err = Get-Content "$env:TEMP/mcp-err.txt" -Raw -ErrorAction SilentlyContinue
+            throw "MCP server exited immediately: $err"
+          }
+          Stop-Process -Id $p.Id -Force
+          Write-Output 'MCP server stayed up'

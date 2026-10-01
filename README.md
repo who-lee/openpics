@@ -107,7 +107,8 @@ a handler registered in the main process.
 
 ## Security
 
-Report vulnerabilities to **security@who-lee.dev**, not in public issues. See
+Report vulnerabilities through GitHub's private advisory form rather than a
+public issue: **Repo → Security → Report a vulnerability**. See
 [SECURITY.md](SECURITY.md) for what to include and what is in scope.
 
 ## Contributing

@@ -1,0 +1,20 @@
+# Code owners for OpenPics.
+#
+# Reviews are required on every pull request (see branch protection on main).
+# Naming an owner here means a change to that path cannot be approved by an
+# uninvolved contributor, or by the person who pushed it.
+
+* @who-lee
+
+# Security-relevant surfaces: everything that touches the filesystem, decodes
+# untrusted bytes, or is reachable from the renderer.
+core/           @who-lee
+electron/       @who-lee
+shared/         @who-lee
+mcp/            @who-lee
+SECURITY.md     @who-lee
+
+# Build and release configuration.
+.github/        @who-lee
+package.json    @who-lee
+electron.vite.config.ts @who-lee
