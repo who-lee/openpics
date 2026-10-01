@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { app } from 'electron'
 import { join } from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '../shared/protocol'
+import { applyPatch, sanitizeSettings } from '../shared/settings-schema'
 
 let cache: Settings | null = null
 
@@ -11,37 +12,21 @@ function file(): string {
 
 export function loadSettings(): Settings {
   if (cache) return cache
-  let parsed: Partial<Settings> = {}
+  let parsed: unknown = {}
   try {
-    parsed = JSON.parse(readFileSync(file(), 'utf8')) as Partial<Settings>
+    parsed = JSON.parse(readFileSync(file(), 'utf8'))
   } catch {
     parsed = {}
   }
   // Whitelist merge: an unknown or corrupt key can never reach the running app.
-  const merged: Settings = { ...DEFAULT_SETTINGS }
-  for (const key of Object.keys(DEFAULT_SETTINGS) as (keyof Settings)[]) {
-    const incoming = parsed[key]
-    if (typeof incoming === typeof DEFAULT_SETTINGS[key]) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(merged as any)[key] = incoming
-    }
-  }
+  const merged = sanitizeSettings(parsed, DEFAULT_SETTINGS)
   if (merged.root === '') merged.root = defaultRoot()
   cache = merged
   return merged
 }
 
 export function saveSettings(patch: Partial<Settings>): Settings {
-  const current = loadSettings()
-  const next: Settings = { ...current }
-  for (const key of Object.keys(current) as (keyof Settings)[]) {
-    if (!(key in patch)) continue
-    const incoming = patch[key]
-    if (typeof incoming === typeof current[key]) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(next as any)[key] = incoming
-    }
-  }
+  const next = applyPatch(loadSettings(), patch)
   cache = next
   try {
     mkdirSync(app.getPath('userData'), { recursive: true })

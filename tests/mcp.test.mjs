@@ -10,7 +10,7 @@
  * server's own state, and a temporary fixture picture that is deleted afterwards.
  */
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -673,6 +673,40 @@ check('apply on an edit with nothing changed is refused', r.isError === true, r.
 r = await call('edit_preview', { edit: tmpEdit, path: once })
 check('preview refuses to clobber', r.isError, r.raw.slice(0, 160))
 await call('edit_close', { edit: tmpEdit })
+
+/* ---------- the MCP switch ---------- */
+section('mcp switch')
+// The switch is re-read per tool call rather than cached at startup, precisely
+// so that this can be tested on a live server: the setting is flipped while the
+// process keeps running, which is the only way to prove no tool can reach past
+// it. A cached read would pass every other test in this file and still let an
+// agent keep working for hours after the user switched it off.
+const settingsFile = join(DATA, 'settings.json')
+const readSettings = () => {
+  try { return JSON.parse(readFileSync(settingsFile, 'utf8')) } catch { return {} }
+}
+const wasAllowed = readSettings()
+writeFileSync(settingsFile, JSON.stringify({ ...wasAllowed, enableMcp: false }, null, 2), 'utf8')
+
+r = await call('photos_find', { root: FIX })
+check('a read-only tool refuses while the switch is off', r.isError === true, r.raw.slice(0, 160))
+check('the refusal names the setting', /turned off in Settings/i.test(r.raw), r.raw.slice(0, 160))
+
+// The gate has to cover the write tools too, or "off" would only be half true.
+r = await call('bin_list', {})
+check('a destructive tool refuses while the switch is off', r.isError === true, r.raw.slice(0, 160))
+r = await call('edit_cutout_auto', { path: SRC, tolerance: 20 })
+check('an edit tool refuses while the switch is off', r.isError === true, r.raw.slice(0, 160))
+
+writeFileSync(settingsFile, JSON.stringify({ ...wasAllowed, enableMcp: true }, null, 2), 'utf8')
+r = await call('photos_find', { root: FIX })
+check('tools work again once the switch is back on', !r.isError, r.raw.slice(0, 160))
+
+// An absent key must behave as "on": that is how the app shipped, and treating a
+// missing file as "off" would silently disable every agent on upgrade.
+rmSync(settingsFile, { force: true })
+r = await call('photos_find', { root: FIX })
+check('an absent setting file leaves the tools allowed', !r.isError, r.raw.slice(0, 160))
 
 console.log(`\n==== ${pass} passed, ${fail} failed ====`)
 if (failures.length) { console.log('\nFailures:'); for (const f of failures) console.log(' - ' + f) }

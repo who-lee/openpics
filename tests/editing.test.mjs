@@ -399,6 +399,73 @@ try {
   } catch {}
 }
 
+/* ---------- settings validation ---------- */
+section('settings validation')
+// The app used to accept any value whose `typeof` matched the default, which
+// admits NaN. A cleared number field sends `Number('')`, and a NaN row height
+// collapses the grid with no error to trace it to, and it survives every restart
+// because the same loose check runs on the way back in. These assert the bounds
+// hold on both paths: a corrupt file, and a patch from the renderer.
+{
+  const { sanitizeSettings, applyPatch } = await import(
+    new URL('../dist-test/shared/settings-schema.js', import.meta.url).href
+  )
+  const { DEFAULT_SETTINGS } = await import(new URL('../dist-test/shared/protocol.js', import.meta.url).href)
+
+  let s = sanitizeSettings({ rowHeight: Number('') }, DEFAULT_SETTINGS)
+  check('a cleared number field cannot persist NaN', Number.isFinite(s.rowHeight), `rowHeight ${s.rowHeight}`)
+
+  s = sanitizeSettings({ rowHeight: 'huge' }, DEFAULT_SETTINGS)
+  check('a string cannot be written into a numeric setting', s.rowHeight === DEFAULT_SETTINGS.rowHeight, `rowHeight ${s.rowHeight}`)
+
+  s = sanitizeSettings({ rowHeight: -50 }, DEFAULT_SETTINGS)
+  check('a negative row height is clamped', s.rowHeight === 64, `rowHeight ${s.rowHeight}`)
+
+  s = sanitizeSettings({ rowHeight: 99_999 }, DEFAULT_SETTINGS)
+  check('an absurd row height is clamped', s.rowHeight === 512, `rowHeight ${s.rowHeight}`)
+
+  s = sanitizeSettings({ rowHeight: 200.4 }, DEFAULT_SETTINGS)
+  check('a fractional row height is rounded', s.rowHeight === 200, `rowHeight ${s.rowHeight}`)
+
+  // A NaN already sitting in settings.json must not survive a restart.
+  s = sanitizeSettings({ terminalHeight: NaN }, DEFAULT_SETTINGS)
+  check('a NaN on disk falls back to the default', s.terminalHeight === DEFAULT_SETTINGS.terminalHeight, `terminalHeight ${s.terminalHeight}`)
+
+  s = sanitizeSettings({ theme: 'chartreuse' }, DEFAULT_SETTINGS)
+  check('an invented theme is refused', s.theme === 'dark', `theme ${s.theme}`)
+  s = sanitizeSettings({ theme: 'light' }, DEFAULT_SETTINGS)
+  check('a real theme is accepted', s.theme === 'light', `theme ${s.theme}`)
+
+  s = sanitizeSettings({ scanMode: 'everything' }, DEFAULT_SETTINGS)
+  check('an invented scan mode is refused', s.scanMode === 'folder', `scanMode ${s.scanMode}`)
+  s = sanitizeSettings({ sortKey: 'colour' }, DEFAULT_SETTINGS)
+  check('an invented sort key is refused', s.sortKey === 'name', `sortKey ${s.sortKey}`)
+  s = sanitizeSettings({ sortDir: 'sideways' }, DEFAULT_SETTINGS)
+  check('an invented sort direction is refused', s.sortDir === 'asc', `sortDir ${s.sortDir}`)
+
+  s = sanitizeSettings({ enableTerminal: 'yes' }, DEFAULT_SETTINGS)
+  check('a string cannot turn the terminal on', s.enableTerminal === DEFAULT_SETTINGS.enableTerminal, `enableTerminal ${s.enableTerminal}`)
+
+  // Unknown keys must be dropped, not carried through to the running app.
+  s = sanitizeSettings({ root: 'C:\\Pics', somethingElse: 42 }, DEFAULT_SETTINGS)
+  check('a valid path is kept', s.root === 'C:\\Pics', `root ${s.root}`)
+  check('an unknown key is dropped', !('somethingElse' in s), Object.keys(s).join(','))
+
+  // The patch path is a separate function, so it is checked separately.
+  let p = applyPatch(DEFAULT_SETTINGS, { rowHeight: 0 })
+  check('a patch of zero is clamped', p.rowHeight === 64, `rowHeight ${p.rowHeight}`)
+  p = applyPatch(DEFAULT_SETTINGS, { slideIntervalMs: 10 })
+  check('an unusably fast slideshow is clamped', p.slideIntervalMs === 500, `slideIntervalMs ${p.slideIntervalMs}`)
+  p = applyPatch(DEFAULT_SETTINGS, { enableMcp: false })
+  check('the MCP switch can be turned off', p.enableMcp === false, `enableMcp ${p.enableMcp}`)
+  p = applyPatch(DEFAULT_SETTINGS, { enableMcp: true })
+  check('the MCP switch can be turned back on', p.enableMcp === true, `enableMcp ${p.enableMcp}`)
+
+  // An unrelated setting must not be disturbed by a patch that does not mention it.
+  p = applyPatch(DEFAULT_SETTINGS, { rowHeight: 240 })
+  check('a patch leaves other settings alone', p.theme === DEFAULT_SETTINGS.theme && p.enableMcp === DEFAULT_SETTINGS.enableMcp, JSON.stringify(p))
+}
+
 console.log(`\n==== ${pass} passed, ${fail} failed ====`)
 if (failures.length) {
   console.log('\nFailures:')

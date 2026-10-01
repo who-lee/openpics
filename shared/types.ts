@@ -99,6 +99,17 @@ export interface Settings {
    */
   enableTerminal: boolean
   /**
+   * Whether the MCP server is allowed to run at all. Defaults to true because
+   * that is how the app shipped, but the setting is the single gate both the
+   * app and the server read, so switching it off denies every agent tool.
+   *
+   * A running server is not killed by this: it is a stdio process owned by the
+   * agent that launched it, not by this window. Turning the switch off takes
+   * effect on the next start, and refuses a tool call on an already-running one
+   * only if that agent re-reads the file.
+   */
+  enableMcp: boolean
+  /**
    * Height of the terminal drawer in pixels. Persisted so the panel comes back
    * the size it was left, the way an editor's terminal panel does.
    */

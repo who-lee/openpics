@@ -67,6 +67,10 @@ export const DEFAULT_SETTINGS: Settings = {
   // Opt-in: a terminal escalates what the window can do, so it is off until the
   // user asks for it rather than shipped on.
   enableTerminal: false,
+  // On by default because that is how the app shipped. Unlike the terminal this
+  // is not an escalation the user opted into, it is the advertised agent
+  // integration, so it is available unless it is deliberately switched off.
+  enableMcp: true,
   terminalHeight: 260
 }
 

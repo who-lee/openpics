@@ -70,6 +70,14 @@ and a recycle bin (`bin_list`, `bin_send`, `bin_restore`, `bin_purge`,
 Deletes go to a bin rather than unlinking, so a wrong agent call is
 recoverable. `bin_purge` is the destructive one and is named accordingly.
 
+The tools can be turned off from the app, under Settings → Agent (MCP). Turning
+**Allow agent tools** off makes every tool refuse with an explanation, including
+the ones that only read. The server re-reads that setting on every call rather
+than once at startup, so a switch flipped while an agent is mid-session takes
+effect immediately. An agent that launched the server before you switched it off
+cannot be revoked from the app — it holds the process — so the setting is the
+floor, not the ceiling.
+
 Point an agent at it by adding the command to your MCP client config:
 
 ```json

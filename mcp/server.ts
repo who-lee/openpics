@@ -5,6 +5,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod'
 
 import { describePhoto, findPhotos } from '../core/photos'
+import { dataFile, readJson } from '../core/datadir'
 import { getWallpaper, setWallpaper } from '../core/wallpaper'
 import { emptyBin, listBin, purge, restore, sendToBin } from '../core/recyclebin'
 import { powershell, psString } from '../core/powershell'
@@ -55,6 +56,32 @@ function applySelectionStep(handle: EditHandle, label: string, selection: Uint8A
   const { width, height } = handle.session
   const stats = replaceMask(handle.session, maskFromSelection(width, height, selection, keep), label)
   return { keep, stats }
+}
+
+/**
+ * Whether the user has allowed the agent tools to run.
+ *
+ * This reads the same settings.json the application writes, so the switch in
+ * Settings is the only place the decision is made. The file is re-read per call
+ * rather than cached at startup: a server belongs to whichever agent launched
+ * it and can outlive the window by hours, so a cached value would keep serving
+ * tools long after the user switched them off.
+ *
+ * Absent or unreadable means allowed, matching how the app shipped.
+ */
+function mcpEnabled(): boolean {
+  const settings = readJson<{ enableMcp?: unknown }>(dataFile('settings.json'), {})
+  if (settings.enableMcp === false) return false
+  return true
+}
+
+/** The single refusal point, so no tool can be reached while the switch is off. */
+function assertMcpEnabled(): void {
+  if (!mcpEnabled()) {
+    throw new Error(
+      'OpenPics MCP is turned off in Settings. Turn "Allow agent tools (MCP)" back on in the app to use these tools.'
+    )
+  }
 }
 
 /**
@@ -117,6 +144,9 @@ function defaultPreviewPath(sourcePath: string): string {
  */
 async function guard(fn: () => Promise<Result>): Promise<Result> {
   try {
+    // Checked here rather than in each tool: all 32 handlers funnel through
+    // this, so the switch cannot be bypassed by a tool that forgets it.
+    assertMcpEnabled()
     return await fn()
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

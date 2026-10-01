@@ -2,7 +2,20 @@ import { GearSix } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { bridge } from '@/lib/bridge'
 import { useLibrary } from '@/store/library'
-import { Button, Toggle } from './ui'
+import { Button, Segmented, Toggle } from './ui'
+
+/**
+ * Slideshow speeds, in seconds.
+ *
+ * The stored value is milliseconds so the timer is not rounded every frame,
+ * but nobody wants to choose 3.5s, so the control works in seconds.
+ */
+const SLIDESHOW_CHOICES = [
+  { value: '2', label: '2s' },
+  { value: '5', label: '5s' },
+  { value: '10', label: '10s' },
+  { value: '30', label: '30s' }
+]
 
 /**
  * Settings that do not belong on the toolbar.
@@ -76,6 +89,28 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
     }
   }
 
+  /**
+   * Snapped to the nearest offered speed.
+   *
+   * The stored interval is free-form, so a value set elsewhere (or by an older
+   * build) can fall between two choices. Snapping rather than defaulting to 5s
+   * means the control shows the closest real option instead of silently
+   * rewriting the user's setting to something they did not pick.
+   */
+  const slideshowChoice = (() => {
+    const seconds = settings.slideIntervalMs / 1000
+    let best = SLIDESHOW_CHOICES[0]?.value ?? '5'
+    let bestGap = Infinity
+    for (const choice of SLIDESHOW_CHOICES) {
+      const gap = Math.abs(Number(choice.value) - seconds)
+      if (gap < bestGap) {
+        bestGap = gap
+        best = choice.value
+      }
+    }
+    return best
+  })()
+
   const readable = drives.filter((drive) => !drive.unreadable)
   const freeTotal = readable.reduce((sum, drive) => sum + drive.freeBytes, 0)
 
@@ -123,6 +158,86 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       </section>
 
       <section>
+        <h2 className="text-[13px] font-semibold text-ink">Agent (MCP)</h2>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[12px] leading-[1.5] text-ink-2">
+              Lets a coding agent drive OpenPics over the Model Context Protocol: find pictures,
+              describe them, remove backgrounds, and file things into the Recycle Bin. Turning this
+              off makes every one of those tools refuse.
+            </p>
+            <p className="num mt-1 text-[11px] text-ink-3">
+              {settings.enableMcp
+                ? 'agent tools allowed'
+                : 'agent tools blocked for this profile'}
+            </p>
+          </div>
+          <Toggle
+            label="Allow agent tools"
+            checked={settings.enableMcp}
+            onChange={(value) => {
+              void patch({ enableMcp: value })
+            }}
+          />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-[13px] font-semibold text-ink">Slideshow</h2>
+        <div className="mt-2 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[12px] leading-[1.5] text-ink-2">
+              How long each picture is held before the next one appears.
+            </p>
+          </div>
+          <Segmented
+            label="Advance after"
+            value={String(slideshowChoice)}
+            options={SLIDESHOW_CHOICES}
+            onChange={(value) => {
+              const seconds = Number(value)
+              if (Number.isFinite(seconds)) void patch({ slideIntervalMs: seconds * 1000 })
+            }}
+          />
+        </div>
+      </section>
+
+      <section>
+        <h2 className="text-[13px] font-semibold text-ink">Closing</h2>
+        <div className="mt-2 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[12px] leading-[1.5] text-ink-2">
+                Closing the window keeps OpenPics in the tray so it stays available from the right
+                -click menu. Quit it from the tray instead.
+              </p>
+            </div>
+            <Toggle
+              label="Close to tray"
+              checked={settings.closeToTray}
+              onChange={(value) => {
+                void patch({ closeToTray: value })
+              }}
+            />
+          </div>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[12px] leading-[1.5] text-ink-2">
+                Starts in the tray without showing the window.
+              </p>
+            </div>
+            <Toggle
+              label="Start minimised"
+              checked={settings.launchMinimized}
+              onChange={(value) => {
+                void patch({ launchMinimized: value })
+              }}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section>
         <h2 className="text-[13px] font-semibold text-ink">Terminal</h2>
         <div className="mt-2 flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -131,11 +246,13 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
               normal user rights. Anything typed there can change files on this PC, so it is
               off until you switch it on. Press Ctrl+` to show or hide it.
             </p>
-            <p className="num mt-1 text-[11px] text-ink-3">
-              {ptyState === 'unknown'
+<p className="num mt-1 text-[11px] text-ink-3">
+          {ptyState === 'unknown'
                 ? 'checking…'
                 : ptyState === 'ready'
-                  ? 'ready'
+                  ? settings.enableTerminal
+                    ? 'ready'
+                    : 'ready, but currently switched off'
                   : 'unavailable on this system'}
             </p>
           </div>
