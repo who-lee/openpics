@@ -66,3 +66,18 @@ not this project's License.
 Pixel and image codecs are implemented inside this repository under
 Apache-2.0, so the application has no native image dependency and no
 copyleft obligation is inherited from one.
+
+FFmpeg is not linked into OpenPics. It is shipped unmodified as a separate
+executable, alongside its license text at vendor/addons/FFMPEG-LICENSE.txt, and
+invoked only as a child process.
+
+  FFmpeg (ffmpeg.exe, ffprobe.exe) ....... LGPL-3.0-or-later
+    Build: BtbN/FFmpeg-Builds, win64-lgpl.
+    Corresponding source: FFmpeg/FFmpeg commit 46d8f462ee (branch release/9.0)
+      https://github.com/FFmpeg/FFmpeg/commit/46d8f462eeb87ee1f704d8c44a0ee24fca471ad1
+
+The LGPL was chosen for that reason. OpenPics is licensed Apache-2.0, and an
+FFmpeg build containing GPL-licensed components (libx264 and libx265 among them)
+would place GPL obligations on the distributed application as a whole. Recipients
+may rebuild and replace these binaries with their own build of the corresponding
+source; nothing in OpenPics restricts that.

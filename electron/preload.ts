@@ -98,6 +98,17 @@ const bridge: OpenPicsBridge = {
     setFileAssociations: (enabled) => ipcRenderer.invoke('shell:associations', enabled),
     fileAssociations: () => ipcRenderer.invoke('shell:associations-status')
   },
+  addons: {
+    list: () => ipcRenderer.invoke('addons:list'),
+    refresh: () => ipcRenderer.invoke('addons:refresh')
+  },
+  video: {
+    probe: (path) => ipcRenderer.invoke('video:probe', path),
+    trim: (request) => ipcRenderer.invoke('video:trim', request),
+    split: (request) => ipcRenderer.invoke('video:split', request),
+    concat: (request) => ipcRenderer.invoke('video:concat', request),
+    frame: (request) => ipcRenderer.invoke('video:frame', request)
+  },
   win: {
     alwaysOnTop: (value) => ipcRenderer.invoke('win:always-on-top', value),
     fullscreen: (value) => ipcRenderer.invoke('win:fullscreen', value),

@@ -34,8 +34,10 @@
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.mcp.json --noEmit",
     "build:mcp": "tsc -p tsconfig.mcp.json",
+    "addons": "node scripts/fetch-addons.mjs",
+    "prepackage": "npm run addons",
     "build:test": "tsc -p tsconfig.test.json",
-    "test": "npm run build:mcp && npm run build:test && node tests/mcp.test.mjs && node tests/editing.test.mjs",
+    "test": "npm run build:mcp && npm run build:test && node tests/mcp.test.mjs && node tests/editing.test.mjs && node tests/addons.test.mjs && node tests/video.test.mjs",
     "mcp": "npm run build:mcp && node dist-mcp/mcp/server.js",
     "package": "npm run build && electron-builder --win --x64",
     "package:dir": "npm run build && electron-builder --win --x64 --dir"
@@ -78,6 +80,16 @@
     "files": [
       "out/**/*",
       "package.json"
+    ],
+    "npmRebuild": false,
+    "extraResources": [
+      {
+        "from": "vendor/addons",
+        "to": "addons",
+        "filter": [
+          "**/*"
+        ]
+      }
     ],
     "win": {
       "target": [

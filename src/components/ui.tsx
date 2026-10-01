@@ -107,15 +107,23 @@ interface ToggleProps {
   onChange: (value: boolean) => void
   label: string
   hint?: string
+  /** Blocks interaction while an async change is in flight. */
+  disabled?: boolean
 }
 
-export function Toggle({ checked, onChange, label, hint }: ToggleProps) {
+export function Toggle({ checked, onChange, label, hint, disabled = false }: ToggleProps) {
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2 text-[12px] text-ink-2 select-none">
+    <label
+      className={[
+        'inline-flex items-center gap-2 text-[12px] select-none',
+        disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+      ].join(' ')}
+    >
       <button
         type="button"
         role="switch"
         aria-checked={checked}
+        disabled={disabled}
         aria-label={label}
         onClick={() => onChange(!checked)}
         className={clsx(

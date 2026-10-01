@@ -3,7 +3,7 @@ import { ArrowsIn, ArrowsOut, Info, PaintBrush, Pause, Play, X } from '@phosphor
 import { fullUrl, type Photo } from '@shared/protocol'
 import { useLibrary } from '@/store/library'
 import { bridge } from '@/lib/bridge'
-import { clamp, formatCount, formatSeconds } from '@/lib/format'
+import { clamp, formatCount, formatDuration, formatSeconds } from '@/lib/format'
 import { picturePointAt, type StrokePoint } from '@/lib/geometry'
 import { useEditor } from '@/lib/useEditor'
 import { EditPanel } from './EditPanel'
@@ -24,10 +24,11 @@ export function Viewer() {
   const playing = useLibrary((s) => s.slideshowPlaying)
   const showInfo = useLibrary((s) => s.showInfo)
   const interval = useLibrary((s) => s.settings.slideIntervalMs)
-  const { close, step, setSlideshow, toggleInfo } = useLibrary()
+  const { close, step, setSlideshow, toggleInfo, learnClip } = useLibrary()
 
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
   const [natural, setNatural] = useState<Size>({ w: 0, h: 0 })
   const [viewport, setViewport] = useState<Size>({ w: 0, h: 0 })
   const [zoom, setZoom] = useState(1)
@@ -36,15 +37,21 @@ export function Viewer() {
   const [progress, setProgress] = useState(0)
   const [failure, setFailure] = useState(false)
   const [cursor, setCursor] = useState<{ x: number; y: number; r: number } | null>(null)
+  /** Set once the clip's real dimensions are known, so "measure me" can be told apart from "broken". */
+  const [clipMeasured, setClipMeasured] = useState(false)
 
   const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null)
   const swapTimer = useRef(0)
   const strokeRef = useRef<StrokePoint[]>([])
 
   const photo: Photo | null = openIndex === null ? null : (photos[openIndex] ?? null)
+  const isClip = photo?.kind === 'video'
 
   const editor = useEditor(photo?.path ?? '')
-  const painting = editor.active
+  // Painting is a still-picture operation: the stroke maths assumes a picture
+  // whose pixels are already in memory, and nothing in the editor knows about
+  // time. Clips get the viewer without it rather than a broken paint mode.
+  const painting = editor.active && !isClip
 
   useLayoutEffect(() => {
     const el = stageRef.current
@@ -65,6 +72,7 @@ export function Viewer() {
     setNatural({ w: 0, h: 0 })
     setFailure(false)
     setProgress(0)
+    setClipMeasured(false)
   }, [openIndex])
 
   // Crossfade: fade out, swap the source under cover, fade back in.
@@ -81,7 +89,10 @@ export function Viewer() {
     if (openIndex === null || photos.length < 2) return
     for (const offset of [1, -1]) {
       const next = photos[(openIndex + offset + photos.length) % photos.length]
-      if (next && NATIVE_OK(next)) {
+      // Clips are skipped. `new Image()` cannot pull a useful frame out of a
+      // container, so the request would be spent on decoding nothing and on
+      // Chromium's error handler firing for a "broken" image that is not broken.
+      if (next && !isClipItem(next) && NATIVE_OK(next)) {
         const img = new Image()
         img.src = fullUrl(next.path)
       }
@@ -368,8 +379,12 @@ export function Viewer() {
             </IconButton>
             <span className="mx-1 h-4 w-px bg-line" aria-hidden="true" />
             <IconButton
-              label="Edit this picture (E)"
+              // Painting works on decoded pixels, so a clip has nothing to paint.
+              // `title` says why rather than leaving a button that silently does
+              // nothing, since the icon itself still looks clickable.
+              label={isClip ? 'Editing clips is not available yet' : 'Edit this picture (E)'}
               active={painting}
+              disabled={isClip}
               onClick={() => (painting ? void editor.end() : void editor.begin())}
             >
               <PaintBrush size={15} weight="regular" />
@@ -407,12 +422,70 @@ export function Viewer() {
           {failure ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
               <p className="text-[13px] text-ink-2">
-                {photo.ext.toUpperCase()} cannot be displayed in the viewer.
+                {isClip
+                  ? `This build cannot play ${photo.ext.toUpperCase()} clips. Chromium has no decoder for that container.`
+                  : `${photo.ext.toUpperCase()} cannot be displayed in the viewer.`}
+              </p>
+              <p className="max-w-[46ch] text-[11px] text-ink-3">
+                {isClip
+                  ? 'MP4, WebM, MOV, OGV and 3GP usually play here. FLV, WMV, MPEG and MPEG-TS need another player.'
+                  : 'Opening it in the default app uses your own image viewer, which may know the format.'}
               </p>
               <Button size="sm" variant="solid" onClick={() => void bridge.shell.open(photo.path)}>
                 Open in the default app
               </Button>
             </div>
+          ) : isClip ? (
+            <video
+              ref={videoRef}
+              key={photo.path}
+              src={fullUrl(photo.path)}
+              controls
+              preload="metadata"
+              playsInline
+              // Clips are muted by default. Autoplaying a clip with sound would
+              // be obnoxious, and a user who wants sound presses play.
+              muted
+              onLoadedMetadata={(event) => {
+                const el = event.currentTarget
+                const w = el.videoWidth
+                const h = el.videoHeight
+                setNatural({ w, h })
+                setClipMeasured(w > 0 && h > 0)
+                // `metadata` alone gives duration and size but leaves the poster
+                // frame unpainted, so the viewer would show a black rectangle.
+                // Seeking to the first frame is what makes Chromium decode and
+                // display it without downloading the rest of the clip.
+                if (w > 0 && h > 0) el.currentTime = 0.001
+                if (openIndex !== null) {
+                  learnClip(openIndex, {
+                    width: w,
+                    height: h,
+                    durationSeconds: Number.isFinite(el.duration) ? el.duration : 0
+                  })
+                }
+              }}
+              onError={() => {
+                // Distinguishes "your file is broken" from "Chromium has no
+                // decoder for this container", which are different problems with
+                // different fixes and used to show the same blank frame.
+                if (!clipMeasured) setFailure(true)
+              }}
+              style={{
+                width: natural.w > 0 ? displayW : 'auto',
+                height: natural.h > 0 ? displayH : 'auto',
+                maxWidth: zoom > 1.02 ? 'none' : '100%',
+                maxHeight: zoom > 1.02 ? 'none' : '100%',
+                transform: `translate3d(${pan.x}px, ${pan.y}px, 0)`,
+                opacity,
+                objectFit: 'contain',
+                background: '#000'
+              }}
+              className={[
+                'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
+                'transition-opacity ease-out will-change-transform'
+              ].join(' ')}
+            />
           ) : (
             <img
               ref={imgRef}
@@ -465,6 +538,12 @@ export function Viewer() {
               {zoomPct}% · drag to pan
             </p>
           ) : null}
+
+          {isClip ? (
+            <p className="num pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 rounded-[6px] border border-line bg-surface/90 px-2 py-1 text-[11px] text-ink-3">
+              {formatDuration(photo.durationSeconds)} · {natural.w > 0 ? `${natural.w} x ${natural.h}` : 'reading header'}
+            </p>
+          ) : null}
         </div>
 
         <footer className="flex h-[30px] shrink-0 items-center gap-3 border-t border-line px-3">
@@ -510,4 +589,12 @@ export function Viewer() {
 
 function NATIVE_OK(photo: Photo): boolean {
   return !['heic', 'heif', 'tif', 'tiff'].includes(photo.ext)
+}
+
+/**
+ * A clip is never warmed through `new Image()`. Kept as a named check so the
+ * neighbour-warming loop reads as a decision rather than an oversight.
+ */
+function isClipItem(photo: Photo): boolean {
+  return photo.kind === 'video'
 }

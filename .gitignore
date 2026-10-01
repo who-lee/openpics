@@ -13,6 +13,14 @@ release/
 electron-builder/
 build/unpacked/
 
+# Everything under vendor/ is fetched by scripts/fetch-addons.mjs: the two
+# executables are 200 MB between them, the licence text is copied out of the same
+# archive, and the download cache holds a further ~110 MB. Committing any of it
+# makes the repo uncloneable, and every byte of it is available from the vendor
+# with a checksum. Run `npm run addons` after cloning; `npm run package` does it
+# for you.
+vendor/
+
 # Environment and secrets
 .env
 .env.*

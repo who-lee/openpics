@@ -2,8 +2,24 @@ import { execFile } from 'node:child_process'
 import { app } from 'electron'
 import { promisify } from 'node:util'
 import { IMAGE_EXTS } from '../shared/protocol'
+import { VIDEO_EXTS } from '../shared/video'
 
 const run = promisify(execFile)
+
+/**
+ * Everything OpenPics offers to open.
+ *
+ * Pictures and clips together. The verb is additive, so adding video here costs
+ * a user nothing but a context-menu entry; leaving it out would mean double
+ * clicking a clip in Explorer starts whatever else claimed the extension.
+ *
+ * Ordered so the probe in `fileAssociationsEnabledWith` still lands on a
+ * picture. That check only reads one extension to decide whether the
+ * registration exists at all, and if it sampled a video extension instead then
+ * a user who installed a build predating this change would be told their
+ * associations were broken and asked to repair them.
+ */
+const HANDLED_EXTS: string[] = [...IMAGE_EXTS, ...VIDEO_EXTS]
 
 /**
  * Context-menu and "Open with" registration for OpenPics.
@@ -135,7 +151,7 @@ export async function setFileAssociationsWith(
   const appRoot = `${classesRoot}\\Applications\\${APP_KEY}`
 
   if (!enabled) {
-    for (const ext of IMAGE_EXTS) {
+    for (const ext of HANDLED_EXTS) {
       await regDelete(`${classesRoot}\\SystemFileAssociations\\.${ext}\\shell\\${VERB}`)
     }
     await regDelete(appRoot)
@@ -149,7 +165,7 @@ export async function setFileAssociationsWith(
   await regAdd(`${appRoot}\\DefaultIcon`, null, iconValue(ctx.exe))
   await regAdd(`${appRoot}\\shell\\open\\command`, null, commandValue(ctx.exe))
 
-  for (const ext of IMAGE_EXTS) {
+  for (const ext of HANDLED_EXTS) {
     const verbRoot = `${classesRoot}\\SystemFileAssociations\\.${ext}\\shell\\${VERB}`
     await regAdd(verbRoot, 'MUIVerb', 'Open with OpenPics')
     await regAdd(verbRoot, 'Icon', iconValue(ctx.exe))

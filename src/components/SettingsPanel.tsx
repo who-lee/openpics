@@ -1,7 +1,16 @@
-import { GearSix } from '@phosphor-icons/react'
+import {
+  ArrowClockwise,
+  ArrowSquareOut,
+  CheckCircle,
+  CircleNotch,
+  GearSix,
+  WarningCircle,
+  XCircle
+} from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { bridge } from '@/lib/bridge'
 import { useLibrary } from '@/store/library'
+import type { AddonStatus } from '@shared/addons'
 import { Button, Segmented, Toggle } from './ui'
 
 /**
@@ -38,6 +47,61 @@ async function openCredit(): Promise<void> {
   await bridge.shell.openUrl('https://bylestramk.org')
 }
 
+/**
+ * One external tool, as a row.
+ *
+ * The three states it can be in are worth distinguishing in the design: present,
+ * absent, and present-but-broken. The third is the one that matters. A path in
+ * `PATH` can be a Microsoft Store alias that opens the Store, or a shim left by a
+ * failed install, and both of those would earn a tick from a file-existence check
+ * and then fail the first time somebody edits a clip. So the row shows what
+ * answered, and a required tool that did not answer says so in the same red as one
+ * that is missing - from the user's side the two are equally unusable, and the
+ * difference only matters to whoever is debugging.
+ */
+function AddonRow({ addon }: { addon: AddonStatus }) {
+  const ok = addon.available
+  const Icon = ok ? CheckCircle : addon.blocking ? XCircle : WarningCircle
+  const tint = ok ? 'text-ink' : addon.blocking ? 'text-accent-text' : 'text-ink-3'
+
+  return (
+    <div className="flex items-start justify-between gap-4 py-2">
+      <div className="flex min-w-0 items-start gap-2">
+        <Icon size={15} weight="fill" className={`mt-px shrink-0 ${tint}`} aria-hidden />
+        <div className="min-w-0">
+          <p className="text-[12px] text-ink">
+            {addon.label}
+            {addon.bundled ? (
+              <span className="ml-1.5 rounded-full bg-accent-soft px-1.5 py-px text-[10px] text-accent-text">
+                included
+              </span>
+            ) : null}
+          </p>
+          <p className="num mt-0.5 truncate text-[11px] text-ink-3">
+            {ok
+              ? [addon.version, addon.source === 'bundled' ? 'bundled with OpenPics' : addon.source, addon.path]
+                  .filter(Boolean)
+                  .join(' · ')
+              : (addon.problem ?? 'not found')}
+          </p>
+        </div>
+      </div>
+      {!ok && addon.vendor ? (
+        <button
+          type="button"
+          className="flex shrink-0 items-center gap-1 text-[11px] text-ink-2 hover:text-ink"
+          onClick={() => {
+            void bridge.shell.openUrl(`https://${addon.vendor}`)
+          }}
+        >
+          Get it
+          <ArrowSquareOut size={11} aria-hidden />
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const settings = useLibrary((s) => s.settings)
   const patch = useLibrary((s) => s.patch)
@@ -47,16 +111,38 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
    * Read back from the registry rather than mirrored from the setting, so the
    * switch cannot claim to be on when someone removed the entries by hand.
    */
-  const [shellState, setShellState] = useState<'on' | 'off' | 'pending'>('pending')
+  const [shellState, setShellState] = useState<'on' | 'off' | 'pending' | 'unknown'>('pending')
   const [busy, setBusy] = useState(false)
   const setTerminalOpen = useLibrary((s) => s.setTerminalOpen)
   const [ptyState, setPtyState] = useState<'unknown' | 'ready' | 'unavailable'>('unknown')
 
+  /**
+   * Addon detection.
+   *
+   * `null` while the probe is in flight, which is distinct from an empty list:
+   * an empty list would render as "nothing is installed" and read as a finding
+   * rather than as not-yet-known. The probe runs a real executable, so it is
+   * slower than reading a settings file and is why this is a spinner and not a
+   * skeleton.
+   */
+  const [addons, setAddons] = useState<AddonStatus[] | null>(null)
+  const [reprobing, setReprobing] = useState(false)
+
   useEffect(() => {
     let live = true
-    void bridge.shell.fileAssociations().then((enabled) => {
-      if (live) setShellState(enabled ? 'on' : 'off')
-    })
+    void bridge.shell
+      .fileAssociations()
+      .then((enabled) => {
+        if (live) setShellState(enabled ? 'on' : 'off')
+      })
+      .catch(() => {
+        // The probe reads the registry, so it can fail on a locked-down or redirected
+        // hive. That is not the same as 'off', and it is not 'pending' either:
+        // staying in the initial state left this row saying "checking…" forever,
+        // which reads as a hang and gives the user nothing to act on. So the
+        // failure gets its own state, which says the state could not be read.
+        if (live) setShellState('unknown')
+      })
     return () => {
       live = false
     }
@@ -66,13 +152,65 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   // unusual build. Reporting that here is better than a drawer that opens empty.
   useEffect(() => {
     let live = true
-    void bridge.terminal.available().then((ok) => {
-      if (live) setPtyState(ok ? 'ready' : 'unavailable')
-    })
+    void bridge.terminal
+      .available()
+      .then((ok) => {
+        if (live) setPtyState(ok ? 'ready' : 'unavailable')
+      })
+      .catch(() => {
+        if (live) setPtyState('unavailable')
+      })
     return () => {
       live = false
     }
   }, [])
+
+  // Asked once, on open.
+  //
+  // This calls `refresh()`, not `list()`, and the comment used to claim it
+  // refreshed while calling `list()`. That is the one case where the two differ:
+  // `list()` returns the process cache, and the cache is only ever written by a
+  // refresh or by a scan-triggered probe. So a user who installed ffmpeg and
+  // reopened Settings saw the same "not found" they saw before, which is exactly
+  // what this panel exists to fix.
+  //
+  // Every mount probes, which means opening Settings costs one `ffmpeg -version`
+  // and one `ffprobe -version` per tool - milliseconds, and it is the only way to
+  // tell the user the truth about their machine rather than about startup.
+  useEffect(() => {
+    let live = true
+    void bridge.addons
+      .refresh()
+      .then((list) => {
+        if (live) setAddons(list)
+      })
+      .catch(() => {
+        // A rejected probe is not a list of missing tools. Leaving it null keeps
+        // the section honest instead of claiming the machine has nothing.
+        if (live) setAddons([])
+      })
+    return () => {
+      live = false
+    }
+  }, [])
+
+  /**
+   * Re-runs every probe.
+   *
+   * Only for after the user installed something in this session: they closed
+   * Settings, went off to python.org, and came back. Without this the row would
+   * still say "not found" and the user would conclude the install failed.
+   */
+  const reprobeAddons = async (): Promise<void> => {
+    setReprobing(true)
+    try {
+      setAddons(await bridge.addons.refresh())
+    } catch {
+      /* keep the previous answer; a failed refresh is not new information */
+    } finally {
+      setReprobing(false)
+    }
+  }
 
   const toggleShell = async (): Promise<void> => {
     setBusy(true)
@@ -130,14 +268,19 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
                 ? busy
                   ? 'applying…'
                   : 'checking…'
-                : shellState === 'on'
-                  ? 'registered for this user'
-                  : 'not registered'}
+                : shellState === 'unknown'
+                  ? 'could not read the registry for this user'
+                  : shellState === 'on'
+                    ? 'registered for this user'
+                    : 'not registered'}
             </p>
           </div>
           <Toggle
             label="Context menu"
             checked={shellState === 'on'}
+            // Registry writes are not atomic, so a second click mid-apply could
+            // interleave an add with a delete and leave the entry half-written.
+            disabled={busy}
             onChange={(value) => {
               if (value !== (shellState === 'on')) void toggleShell()
             }}
@@ -155,6 +298,44 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             ? `, ${drives.length - readable.length} unreadable`
             : ''}
         </p>
+      </section>
+
+      <section>
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-[13px] font-semibold text-ink">External tools</h2>
+          <button
+            type="button"
+            className="flex items-center gap-1 text-[11px] text-ink-2 hover:text-ink disabled:opacity-40"
+            disabled={reprobing || addons === null}
+            onClick={() => {
+              void reprobeAddons()
+            }}
+          >
+            {reprobing ? (
+              <CircleNotch size={11} className="animate-spin" aria-hidden />
+            ) : (
+              <ArrowClockwise size={11} aria-hidden />
+            )}
+            Check again
+          </button>
+        </div>
+        <p className="mt-1 text-[12px] leading-[1.5] text-ink-2">
+          OpenPics uses these to edit video. FFmpeg comes with the app, so video editing works
+          straight away. The others are only used if you install them yourself &mdash; nothing here
+          is downloaded or changed without you asking.
+        </p>
+        <div className="mt-1 divide-y divide-line border-t border-line">
+          {addons === null ? (
+            <p className="num flex items-center gap-2 py-2 text-[11px] text-ink-3">
+              <CircleNotch size={12} className="animate-spin" aria-hidden />
+              looking for them&hellip;
+            </p>
+          ) : addons.length === 0 ? (
+            <p className="py-2 text-[11px] text-ink-3">Could not check. Restart OpenPics and try again.</p>
+          ) : (
+            addons.map((addon) => <AddonRow key={addon.id} addon={addon} />)
+          )}
+        </div>
       </section>
 
       <section>

@@ -44,6 +44,10 @@ import {
 import type { TerminalCreateOptions } from '../shared/terminal'
 import { ensureFileAssociations, fileAssociationsEnabled, setFileAssociations } from './shellassoc'
 import { getWallpaper, setWallpaper } from '../core/wallpaper'
+import { addonStatuses, refreshAddonStatuses } from '../core/addons/detect'
+import { concatVideos, extractFrame, splitVideo, trimVideo } from '../core/video/edit'
+import { probeVideo } from '../core/video/probe'
+import { isVideoName, type ConcatRequest, type FrameRequest, type SplitRequest, type TrimRequest } from '../shared/video'
 import { buildTray, updateTray, type TrayRef } from './tray'
 
 const WINDOW_W = 1280
@@ -201,18 +205,22 @@ function deliverFiles(paths: string[]): void {
 }
 
 /**
- * Picks image files out of an argv vector.
+ * Picks openable files out of an argv vector: pictures and clips.
  *
  * Chromium injects its own switches (`--user-data-dir=...` in particular, which
  * the test harness relies on), so anything starting with a dash is skipped, and
- * each remaining argument is confirmed to be an existing image file rather than
- * trusted on the strength of its extension alone.
+ * each remaining argument is confirmed to be an existing file rather than trusted
+ * on the strength of its extension alone.
+ *
+ * Renamed from `imagePathsFromArgv` because it no longer opens only images. The
+ * name was the reason a clip on the command line was silently dropped: the
+ * extension check read `isImage`, and the old name made that look deliberate.
  */
-function imagePathsFromArgv(argv: string[]): string[] {
+function libraryPathsFromArgv(argv: string[]): string[] {
   const found: string[] = []
   for (const arg of argv) {
     if (arg.startsWith('-')) continue
-    if (!isImage(arg)) continue
+    if (!isImage(arg) && !isVideoName(arg)) continue
     try {
       const full = resolve(arg)
       if (statSync(full).isFile()) found.push(full)
@@ -232,8 +240,14 @@ function wireIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
 
   ipcMain.handle('settings:patch', (_e, patch: Partial<Settings>) => {
+    const wasTerminalOn = loadSettings().enableTerminal
     const next = saveSettings(patch)
     nativeTheme.themeSource = next.theme
+    // Turning the terminal off only stopped *new* shells from being created:
+    // `createTerminal` re-reads the setting and refuses, but every already-open
+    // PTY kept running with full filesystem access. A user who switches it off
+    // expects the shells to go, not to go quiet.
+    if (wasTerminalOn && !next.enableTerminal) killAllTerminals()
     if (win && !win.isDestroyed()) {
       win.setAlwaysOnTop(next.alwaysOnTop)
       win.setTitleBarOverlay?.({
@@ -386,6 +400,27 @@ function wireIpc(): void {
   ipcMain.handle('terminal:kill', (event, id: string) => {
     killTerminal(event.sender.id, id)
   })
+
+  // Addon detection. `list` is cached inside core, so repeated calls from the
+  // Settings panel cost nothing; `refresh` exists because the user may have
+  // installed something since the app started, and a stale tick would be worse
+  // than a re-probe.
+  //
+  // There is no `install` handler, and that is deliberate. Everything OpenPics
+  // ships is already inside the installer, so there is nothing for it to fetch,
+  // and a handler taking a URL would let a renderer name any binary on the disk.
+  // A missing optional tool gets a link to its vendor instead.
+  ipcMain.handle('addons:list', () => addonStatuses())
+  ipcMain.handle('addons:refresh', () => refreshAddonStatuses())
+
+  // Video. All of these write a new file and refuse to touch a source, so there is
+  // no confirmation prompt here - unlike shell:associations, nothing the renderer
+  // can ask for is irreversible.
+  ipcMain.handle('video:probe', (_e, path: string) => probeVideo(path))
+  ipcMain.handle('video:trim', (_e, request: TrimRequest) => trimVideo(request))
+  ipcMain.handle('video:split', (_e, request: SplitRequest) => splitVideo(request))
+  ipcMain.handle('video:concat', (_e, request: ConcatRequest) => concatVideos(request))
+  ipcMain.handle('video:frame', (_e, request: FrameRequest) => extractFrame(request))
 }
 
 if (!app.requestSingleInstanceLock()) {
@@ -395,7 +430,7 @@ if (!app.requestSingleInstanceLock()) {
   // arguments. The first element is always the executable, so it is skipped.
   app.on('second-instance', (_event, argv) => {
     showWindow()
-    deliverFiles(imagePathsFromArgv(argv.slice(1)))
+    deliverFiles(libraryPathsFromArgv(argv.slice(1)))
   })
 
   app.whenReady().then(() => {
@@ -409,7 +444,7 @@ if (!app.requestSingleInstanceLock()) {
 
     // A cold start with files on the command line: the window is not listening
     // yet, so these queue until did-finish-load.
-    deliverFiles(imagePathsFromArgv(process.argv.slice(1)))
+    deliverFiles(libraryPathsFromArgv(process.argv.slice(1)))
 
     // Registering the context-menu entries is a handful of registry writes plus a
     // PowerShell round trip, which has no business blocking first paint. The

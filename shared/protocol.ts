@@ -105,8 +105,20 @@ export function comparePhotos(a: Photo, b: Photo, key: SortKey, dir: SortDir): n
       return (a.mtime - b.mtime) * sign
     case 'size':
       return (a.bytes - b.bytes) * sign
-    case 'dimensions':
-      return (a.width * a.height - b.width * b.height) * sign
+    case 'dimensions': {
+      // A clip has no measured size until it has been opened, and comparing
+      // `0 * 0` would put every unopened clip at the bottom of the list as if it
+      // were a zero-pixel picture. Unknown goes last in both directions instead:
+      // the user asked to sort by size, not to have unmeasured files claim they
+      // are smaller than everything.
+      const areaA = a.width > 0 && a.height > 0 ? a.width * a.height : -1
+      const areaB = b.width > 0 && b.height > 0 ? b.width * b.height : -1
+      if (areaA === -1 || areaB === -1) {
+        if (areaA === areaB) return 0
+        return areaA === -1 ? 1 : -1
+      }
+      return (areaA - areaB) * sign
+    }
     case 'name':
     default: {
       // Natural sort so "img2" lands before "img10" instead of after it.

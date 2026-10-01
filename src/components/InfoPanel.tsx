@@ -1,8 +1,16 @@
-import { CalendarBlank, Copy, File, Folder, Image as ImageIcon, Ruler } from '@phosphor-icons/react'
+import { CalendarBlank, Copy, File, Folder, Image as ImageIcon, Ruler, Video } from '@phosphor-icons/react'
 import { useState } from 'react'
 import type { Photo } from '@shared/protocol'
 import { bridge } from '@/lib/bridge'
-import { formatBytes, formatCount, formatDate, formatDimensions, formatMegapixels, prettyPath } from '@/lib/format'
+import {
+  formatBytes,
+  formatCount,
+  formatDate,
+  formatDimensions,
+  formatDuration,
+  formatMegapixels,
+  prettyPath
+} from '@/lib/format'
 import { Button } from './ui'
 
 function Row({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {
@@ -47,6 +55,16 @@ export function InfoPanel({ photo, index, total }: { photo: Photo; index: number
               formatMegapixels(photo.width, photo.height) ? ` (${formatMegapixels(photo.width, photo.height)})` : ''
             }`}
           />
+          {/* Only shown for a clip, and only once its duration is known. The scan
+              leaves it at 0 to avoid an ffprobe run per file, so before the viewer
+              has opened the clip the honest answer is that it is not measured. */}
+          {photo.kind === 'video' && photo.durationSeconds > 0 ? (
+            <Row
+              icon={<Video size={13} weight="regular" />}
+              label="Length"
+              value={formatDuration(photo.durationSeconds)}
+            />
+          ) : null}
           <Row
             icon={<ImageIcon size={13} weight="regular" />}
             label="Format"

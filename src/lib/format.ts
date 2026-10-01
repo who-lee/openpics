@@ -54,3 +54,23 @@ export function formatSeconds(ms: number): string {
   const s = Math.round(ms / 100) / 10
   return `${s % 1 === 0 ? s.toFixed(0) : s.toFixed(1)}s`
 }
+
+/**
+ * A clip's running time, as `m:ss`, or `h:mm:ss` past an hour.
+ *
+ * Distinct from `formatSeconds`, which formats a slideshow interval in
+ * milliseconds. Overloading one of them for two units is exactly how a viewer
+ * ends up labelling a 6-minute clip "0.4s".
+ *
+ * Returns '' for an unknown duration so a caller can print nothing rather than
+ * a confident `0:00` for a clip it has not measured yet.
+ */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return ''
+  const total = Math.floor(seconds)
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  const pad = (n: number): string => n.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${m}:${pad(s)}`
+}

@@ -299,7 +299,33 @@ const MIME: Record<string, string> = {
   tif: 'image/tiff',
   tiff: 'image/tiff',
   heic: 'image/heic',
-  heif: 'image/heif'
+  heif: 'image/heif',
+  // Needed because `?full=1` streams the original, and the viewer puts clips in a
+  // `<video>` element. Chromium will not decode a media response that arrives as
+  // `application/octet-stream`, which is what the fallback would give these - the
+  // element reports a decode error rather than anything about the file being
+  // wrong, so the cause is not obvious from the outside.
+  //
+  // MPEG-4, QuickTime and Matroska are listed because Chromium knows them. FLV,
+  // WMV, MPEG-PS and the MPEG-TS family are not in Chromium's media stack: those
+  // files are listed and can be opened externally, but they will not play in the
+  // viewer. The `3gp` entry is deliberate even though it is a container Chromium
+  // partly supports, because it is what phones actually produce.
+  mp4: 'video/mp4',
+  m4v: 'video/x-m4v',
+  mov: 'video/quicktime',
+  webm: 'video/webm',
+  mkv: 'video/x-matroska',
+  ogv: 'video/ogg',
+  '3gp': 'video/3gpp',
+  avi: 'video/x-msvideo',
+  wmv: 'video/x-ms-wmv',
+  flv: 'video/x-flv',
+  mpg: 'video/mpeg',
+  mpeg: 'video/mpeg',
+  ts: 'video/mp2t',
+  mts: 'video/mp2t',
+  m2ts: 'video/mp2t'
 }
 
 function guessMime(path: string): string {

@@ -53,7 +53,32 @@ anything else would set the desktop to an image that only exists in memory.
 PowerShell or cmd, in a drawer along the bottom of the window. It runs with
 your normal user rights, so anything typed in it can change files on this PC.
 The drawer keeps its scrollback while it is hidden, and its shells close with
-the window.
+the window — and switching the terminal off in Settings closes the shells that
+are already open.
+
+## Video
+
+Clips are listed alongside pictures and open in the same viewer, which plays
+them with the usual controls.
+
+MP4, WebM, MOV, OGV and 3GP play in the viewer. FLV, WMV, MPEG and MPEG-TS are
+listed and open in whatever your system uses instead, because Chromium has no
+decoder for them.
+
+Editing clips needs **FFmpeg**, which is downloaded at package time and shipped
+inside the app; nothing is fetched at runtime. **Settings → External tools** shows
+which tools were found, at which path, and which version. Clips are measured when
+you open them, not during a scan — a scan across a whole drive would otherwise
+spawn an ffprobe process per video before the first tile appeared.
+
+Python, Node and Git are optional and used by the agent tooling. They are
+detected the same way but never downloaded; the Settings panel links to each
+project if you want to install one.
+
+Copying, trimming, splitting, concatenating and extracting a frame run through
+`core/video/edit.ts` and are exposed to agents as `video_trim`, `video_split`,
+`video_concat` and `video_frame`. Every one writes a new file next to the source
+and refuses to overwrite it.
 
 ## The MCP server
 
@@ -63,9 +88,14 @@ npm run mcp
 ```
 
 Exposes `photos_find`, `photos_describe`, `edit_cutout_auto`, `edit_brush`,
-`edit_preview`, `edit_apply`, `edit_inspect`, `wallpaper_get`, `wallpaper_set`,
-and a recycle bin (`bin_list`, `bin_send`, `bin_restore`, `bin_purge`,
-`bin_empty`).
+`edit_preview`, `edit_apply`, `edit_inspect`, `video_addons`, `video_probe`,
+`video_trim`, `video_split`, `video_concat`, `video_frame`, `wallpaper_get`,
+`wallpaper_set`, and a recycle bin (`bin_list`, `bin_send`, `bin_restore`,
+`bin_purge`, `bin_empty`).
+
+The four writing video tools take structured arguments — a start time, a frame
+number, a list of paths. There is no way to pass a raw FFmpeg command line, so an
+agent cannot be talked into running a flag that was not designed for.
 
 Deletes go to a bin rather than unlinking, so a wrong agent call is
 recoverable. `bin_purge` is the destructive one and is named accordingly.
@@ -97,15 +127,48 @@ Point an agent at it by adding the command to your MCP client config:
 npm install
 npm run dev         # run from source
 npm run typecheck   # node, web, and mcp projects
+npm run addons      # download FFmpeg into vendor/ (also run by prepackage)
 npm run build       # bundle to out/
 npm run package:dir # unpacked build in release/win-unpacked
 npm run package     # installer in release/
 ```
 
+`npm run addons` downloads the FFmpeg build into `vendor/addons`, which is
+gitignored and is not part of a source checkout. `npm run package` runs it
+automatically through `prepackage`, so a release build has video support without
+a separate step. The download is verified against a pinned SHA-256 before
+anything is unpacked, and binaries matching the current pin are left alone on a
+re-run.
+
+To check a different archive, set `OPENPICS_FFMPEG_SHA256`.
+
+### Which FFmpeg, and why
+
+The build is BtbN's `win64-lgpl` FFmpeg for Windows. The LGPL matters because
+OpenPics is Apache-2.0: an FFmpeg build containing GPL encoders would put GPL
+obligations on the distributed app as a whole, whereas the LGPL line can be
+shipped as a separate executable without that. Gyan's builds - the more commonly
+linked ones - are all GPLv3, so they are not an option here.
+
+The practical consequence is which encoders are available. This build has no
+libx264 or libx265, so accurate edits (the frame-exact `accurate` option on trim,
+split, and concat) encode H.264 with OpenH264 and H.265 with Kvazaar instead.
+OpenH264 has no constant-quality mode, so it is given a bitrate derived from the
+source resolution and frame rate. It is also restricted to `yuv420p`, which
+cannot represent an odd width or height, so a clip with an odd dimension loses its
+last row and column on an accurate re-encode - the trim succeeds, but the picture
+is one pixel narrower or shorter.
+
+FFmpeg is invoked as a separate process, never linked into OpenPics, and is
+redistributed unmodified. `vendor/addons/FFMPEG-LICENSE.txt` ships alongside the
+binaries and `FFMPEG-BUILD.txt` records the pinned archive plus the corresponding
+FFmpeg source, which is what LGPL section 4 asks a distributor to provide.
+
 ## How it fits together
 
 ```
-core/       pure TypeScript, no Electron: image codecs, editing ops, wallpaper
+core/       pure TypeScript, no Electron: image codecs, editing ops, wallpaper,
+            video probe/edit, external-tool detection
 electron/   main process, preload bridge, filesystem scanner
 shared/     wire types shared by all three layers
 src/        React renderer
@@ -138,6 +201,10 @@ Apache License 2.0. See [LICENSE](LICENSE).
 
 Commercial use is permitted. Any distribution must keep the NOTICE file and
 credit **OpenPics by Hen (who-lee)**, including in an About or Credits screen.
+
+The packaged application also ships FFmpeg, which is licensed separately under
+the LGPL — see [Which FFmpeg, and why](#which-ffmpeg-and-why) above. FFmpeg is
+ redistributed unmodified as a separate executable.
 See [NOTICE](NOTICE) for the full terms.
 
 ## Credits

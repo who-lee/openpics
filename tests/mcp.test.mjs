@@ -115,7 +115,12 @@ const tools = await rpc('tools/list', {})
 const byName = new Map((tools.result.tools ?? []).map((t) => [t.name, t]))
 const names = [...byName.keys()].sort()
 console.log(`tools registered: ${names.length}`)
-check('tool count is 32', names.length === 32, `got ${names.length}: ${names.join(',')}`)
+// Six video tools joined the original 32: video_addons, video_probe,
+// video_trim, video_split, video_concat and video_frame. The count is pinned
+// because a tool that silently stops being registered is the one failure mode an
+// agent cannot report on its own - it just stops finding the capability.
+const EXPECTED_TOOLS = 38
+check('tool count is 38', names.length === EXPECTED_TOOLS, `got ${names.length}: ${names.join(',')}`)
 
 // A client uses these three hints to decide whether it needs to warn a person or
 // back something up before calling. A wrong hint is worse than a missing one, so
@@ -137,7 +142,16 @@ const annotationExpectations = {
   edit_redo: { readOnly: false, idempotent: false },
   edit_history: { readOnly: true, idempotent: true },
   edit_reset: { readOnly: false, idempotent: true },
-  edit_brush: { readOnly: false, idempotent: false }
+  edit_brush: { readOnly: false, idempotent: false },
+  // The video tools are pinned for the same reason. `video_probe` and
+  // `video_addons` only report; the other four write a new file, which is what
+  // keeps `readOnly` false.
+  video_addons: { readOnly: true, idempotent: true },
+  video_probe: { readOnly: true, idempotent: true },
+  video_trim: { readOnly: false, idempotent: false },
+  video_split: { readOnly: false, idempotent: false },
+  video_concat: { readOnly: false, idempotent: false },
+  video_frame: { readOnly: false, idempotent: false }
 }
 for (const [name, want] of Object.entries(annotationExpectations)) {
   const a = byName.get(name)?.annotations ?? {}
@@ -159,7 +173,9 @@ for (const [name, want] of Object.entries(annotationExpectations)) {
 for (const t of tools.result.tools ?? []) {
   const a = t.annotations ?? {}
   check(`${t.name} has annotations`, typeof a.readOnlyHint === 'boolean', JSON.stringify(a))
-  const writesAFile = /^(edit_apply|edit_preview)$/.test(t.name)
+  const writesAFile = /^(edit_apply|edit_preview|video_trim|video_split|video_concat|video_frame)$/.test(
+    t.name
+  )
   if (writesAFile) check(`${t.name} is not marked read-only`, a.readOnlyHint !== true, JSON.stringify(a))
 }
 

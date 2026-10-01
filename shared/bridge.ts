@@ -29,6 +29,15 @@ import type {
   TerminalExitEvent,
   TerminalSessionInfo
 } from './terminal'
+import type { AddonStatus } from './addons'
+import type {
+  ConcatRequest,
+  FrameRequest,
+  SplitRequest,
+  TrimRequest,
+  VideoInfo,
+  VideoOutput
+} from './video'
 
 /**
  * The entire surface the renderer is allowed to touch. It lives in `shared`
@@ -155,6 +164,47 @@ export interface OpenPicsBridge {
      */
     setFileAssociations(enabled: boolean): Promise<boolean>
     fileAssociations(): Promise<boolean>
+  }
+  /**
+   * External tools the app can use.
+   *
+   * Read-only, and deliberately with no `install`. Everything OpenPics ships is
+   * already inside the installer, so there is nothing for it to fetch, and
+   * everything it does not ship - Python, Node, Git - is the user's to install.
+   * A method that took a URL would let a renderer point OpenPics at any binary on
+   * the disk, which is the one capability this surface must not have.
+   *
+   * For a missing optional tool the UI offers the vendor's own download page via
+   * `shell.openUrl`, which is the honest thing to offer: an app cannot install a
+   * user's Python for them.
+   *
+   * Detection is separate from Settings for a related reason. An addon being
+   * absent is a fact about the machine, not a preference; presenting it as a
+   * toggle implies the user can switch it off, which they cannot.
+   */
+  addons: {
+    /** Probes every tool and reports what answered. Cached inside main. */
+    list(): Promise<AddonStatus[]>
+    /** Probes again, for after the user installed something new. */
+    refresh(): Promise<AddonStatus[]>
+  }
+  /**
+   * Video.
+   *
+   * Every operation takes and returns paths, and every one of them writes a new
+   * file. There is no operation here that modifies a clip in place, and none that
+   * takes ffmpeg arguments: the renderer's choices are the ones a person would
+   * make in a UI, so there is no way for a renderer to ask for something ffmpeg
+   * can do but OpenPics has not thought about.
+   */
+  video: {
+    /** Reads duration, size and streams. The call the UI makes when a clip opens. */
+    probe(path: string): Promise<VideoInfo>
+    trim(request: TrimRequest): Promise<VideoOutput>
+    split(request: SplitRequest): Promise<VideoOutput[]>
+    concat(request: ConcatRequest): Promise<VideoOutput>
+    /** Grabs one still frame, for a thumbnail or a contact sheet. */
+    frame(request: FrameRequest): Promise<VideoOutput & { atSeconds: number }>
   }
   win: {
     alwaysOnTop(value: boolean): Promise<boolean>

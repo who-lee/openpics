@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
+import { Video } from '@phosphor-icons/react'
 import { NATIVELY_DECODABLE, thumbUrl, type Photo } from '@shared/protocol'
 
 interface ThumbProps {
@@ -20,6 +21,21 @@ function isDecodable(photo: Photo): boolean {
   return NATIVELY_DECODABLE.has(photo.ext)
 }
 
+/**
+ * Clips get a labelled tile rather than a thumbnail.
+ *
+ * A real poster frame is one ffmpeg run per clip, and a grid can be showing a
+ * few hundred tiles at once, so generating them would mean fanning out into
+ * hundreds of concurrent child processes and writing hundreds of files nobody
+ * asked for. The viewer shows the real first frame as soon as the clip is opened,
+ * which is the only moment a poster is actually worth having.
+ *
+ * `PLAYABLE` is the containers Chromium's media stack can decode. FLV, WMV, MPEG
+ * program streams and the MPEG-TS family are not in it; those tiles say so instead
+ * of implying a clip that will not play.
+ */
+const PLAYABLE = new Set(['mp4', 'm4v', 'mov', 'webm', 'ogv', '3gp'])
+
 function ThumbImpl({ photo, width, height, index, selected, onOpen, onSelect }: ThumbProps) {
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const imgRef = useRef<HTMLImageElement>(null)
@@ -29,7 +45,12 @@ function ThumbImpl({ photo, width, height, index, selected, onOpen, onSelect }: 
     setState('loading')
   }, [photo.path])
 
-  const decodable = isDecodable(photo)
+  const isClip = photo.kind === 'video'
+  const playable = PLAYABLE.has(photo.ext)
+  // A clip never goes through the thumbnail scheme, so the image branch is off
+  // and its `state` stays 'loading' forever - hence the explicit `decodable` gate
+  // on the skeleton below rather than relying on the load callbacks.
+  const decodable = !isClip && isDecodable(photo)
 
   return (
     <button
@@ -76,7 +97,19 @@ function ThumbImpl({ photo, width, height, index, selected, onOpen, onSelect }: 
         />
       ) : null}
 
-      {!decodable || state === 'failed' ? (
+      {isClip ? (
+        <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-raised text-ink-3">
+          <Video size={22} weight="regular" aria-hidden="true" />
+          <span className="num rounded-[3px] border border-line px-1.5 py-0.5 text-[10px] uppercase">
+            {photo.ext}
+          </span>
+          {!playable ? (
+            <span className="px-2 text-center text-[10px] leading-tight">No built-in player</span>
+          ) : null}
+        </span>
+      ) : null}
+
+      {!isClip && (!decodable || state === 'failed') ? (
         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-raised text-ink-3">
           <span className="num rounded-[3px] border border-line px-1.5 py-0.5 text-[10px] uppercase">
             {photo.ext}

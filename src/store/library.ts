@@ -63,6 +63,22 @@ interface LibraryState {
   close: () => void
   step: (delta: number) => void
 
+  /**
+   * Records what a clip turned out to actually be.
+   *
+   * The scan deliberately leaves a clip's width, height and duration at zero
+   * because measuring them means an ffprobe run per file, and a whole-drive walk
+   * would then be tens of thousands of child processes. The `<video>` element
+   * learns all three numbers for free the moment the clip is opened, so it hands
+   * them back here and the grid, the info panel and the sort order stop treating
+   * it as a zero-sized unknown.
+   *
+   * Called once per clip per open. Writing it through the same `photos` array
+   * `visible` is derived from keeps the grid tile in step without a re-scan, and
+   * a second call for the same clip is a no-op by construction.
+   */
+  learnClip: (index: number, media: { width: number; height: number; durationSeconds: number }) => void
+
   setSlideshow: (playing: boolean) => void
   toggleSlideshow: () => void
   toggleInfo: () => void
@@ -404,6 +420,18 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const at = order.indexOf(from)
     const next = at < 0 ? order[0]! : order[(at + delta + order.length) % order.length]!
     set({ openIndex: next, cursor: next, anchor: next, selected: new Set([next]) })
+  },
+
+  learnClip(index, media) {
+    const { photos } = get()
+    const current = photos[index]
+    // A failed or zero-length read leaves the item exactly as the scan wrote it,
+    // which is better than storing a width of 0 next to a real duration.
+    if (!current || current.kind !== 'video') return
+    if (media.width <= 0 || media.height <= 0) return
+    const next = [...photos]
+    next[index] = { ...current, ...media }
+    set({ photos: next })
   },
 
   setSlideshow(playing) {

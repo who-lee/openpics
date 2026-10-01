@@ -42,6 +42,9 @@ import { EditStore, type EditHandle } from '../core/edit/store'
 import type { KeepSide, Resize } from '../core/edit/session'
 import { selectRegion } from '../core/edit/wand'
 import { encodePng } from '../core/image/png'
+import { addonStatuses, refreshAddonStatuses } from '../core/addons/detect'
+import { concatVideos, extractFrame, splitVideo, trimVideo } from '../core/video/edit'
+import { formatDuration, probeVideo } from '../core/video/probe'
 
 /**
  * Applies a geometric selection to a session as one undoable step.
@@ -1200,6 +1203,16 @@ server.registerTool(
 )
 
 /**
+ * A duration in a sentence a model can use.
+ *
+ * Seconds alone make an agent do arithmetic it will get wrong, and `83.4000000001`
+ * invites a false claim of precision the file does not have.
+ */
+function sayDuration(seconds: number): string {
+  return `${formatDuration(seconds)} (${seconds.toFixed(3)}s)`
+}
+
+/**
  * Nothing may reach stdout except protocol messages.
  *
  * The transport frames replies on stdout, so a stray `console.log` anywhere in
@@ -1207,6 +1220,180 @@ server.registerTool(
  * client drops the connection with no useful error. Diagnostics therefore go to
  * stderr, which the transport ignores.
  */
+/**
+ * Nothing may reach stdout except protocol messages.
+ *
+ * The transport frames replies on stdout, so a stray `console.log` anywhere in
+ * this process - including from a dependency - corrupts the stream and the
+ * client drops the connection with no useful error. Diagnostics therefore go to
+ * stderr, which the transport ignores.
+ */
+
+server.registerTool(
+  'video_addons',
+  {
+    title: 'Check which external tools are available',
+    description:
+      'Reports whether FFmpeg, FFprobe, Node, Python and Git are installed, and which copy is being used. OpenPics ships its own FFmpeg, so `bundled: true` is the normal answer and is not a problem. Call this before a video edit if one reports that a tool is missing, to tell "not installed" from "installed but broken".',
+    inputSchema: {
+      refresh: z
+        .boolean()
+        .optional()
+        .describe('Re-run every probe instead of using the cached answer. Default false.')
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const list = args.refresh ? await refreshAddonStatuses() : await addonStatuses()
+      // Text lines rather than the raw array: a model reading this wants to know
+      // which tool to avoid, not to parse a nested object to find out.
+      const lines = list.map((a) => {
+        if (a.available) return `[ok]   ${a.label} ${a.version ?? ''} (${a.source}) - ${a.path}`
+        const tag = a.blocking ? 'REQUIRED' : 'optional'
+        return `[--]   ${a.label} not available (${tag}) - ${a.problem ?? 'unknown'}${a.vendor ? ` - see https://${a.vendor}` : ''}`
+      })
+      const missingRequired = list.filter((a) => a.blocking && !a.available)
+      const tail = missingRequired.length
+        ? `\n\nVideo editing is unavailable: ${missingRequired.map((a) => a.label).join(', ')} missing. Reinstall OpenPics if these were expected to be bundled.`
+        : ''
+      return ok(lines.join('\n') + tail)
+    })
+)
+
+server.registerTool(
+  'video_probe',
+  {
+    title: 'Inspect a video',
+    description:
+      'Reads a video\'s duration, dimensions, frame rate and stream layout without changing anything. Call this before trimming or splitting: it is the only way to know a clip\'s real length, and cutting to an end time past the clip is refused rather than guessed.',
+    inputSchema: { path: absPath.describe('The video to inspect.') },
+    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const info = await probeVideo(args.path)
+      const size = info.width && info.height ? `${info.width}x${info.height}` : 'unknown size'
+      const rate = info.frameRate ? `${info.frameRate.toFixed(3)} fps` : 'unknown frame rate'
+      const v = info.videoStreams[0]
+      const a = info.audioStreams[0]
+      const head =
+        `${parse(args.path).base}: ${sayDuration(info.durationSeconds)}, ${size}, ${rate}, ` +
+        `${(info.bytes / 1024 / 1024).toFixed(1)} MB`
+      const detail = [
+        `video: ${v ? `${v.codec}, ${v.width}x${v.height}, ${v.frameRate ?? '?'} fps${v.rotation ? `, rotated ${v.rotation}°` : ''}` : 'none'}`,
+        `audio: ${a ? `${a.codec}, ${a.channels ?? '?'} channel(s)${a.sampleRate ? `, ${a.sampleRate} Hz` : ''}` : 'none'}`
+      ]
+      return ok([head, ...detail].join('\n'))
+    })
+)
+
+server.registerTool(
+  'video_trim',
+  {
+    title: 'Trim a video',
+    description:
+      'Keeps the part of a clip between two times and writes a NEW file. The original is never modified. By default the streams are copied, which takes about a second but cuts on the nearest keyframe, so the result can start slightly early or late. Set accurate: true to re-encode and land on exactly the requested frame.',
+    inputSchema: {
+      path: absPath.describe('The clip to trim. It is not modified.'),
+      startSeconds: z.number().min(0).optional().describe('Where to start, in seconds. Default 0.'),
+      endSeconds: z.number().positive().optional().describe('Where to stop, in seconds. Default the end of the clip.'),
+      output: absPath.optional().describe('Where to write the result. Default a new file beside the source.'),
+      accurate: z
+        .boolean()
+        .optional()
+        .describe('Re-encode so the cut lands exactly where asked. Much slower. Default false.')
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const out = await trimVideo(args)
+      return ok(
+        `Wrote ${out.path} - ${sayDuration(out.durationSeconds)}, ${(out.bytes / 1024 / 1024).toFixed(1)} MB. ` +
+          `Streams were ${out.copied ? 'copied, so the cut is on the nearest keyframe' : 're-encoded, so the cut is frame-exact'}. ` +
+          `The source is unchanged.`
+      )
+    })
+)
+
+server.registerTool(
+  'video_split',
+  {
+    title: 'Split a video into pieces',
+    description:
+      'Cuts a clip at the given times and writes the pieces as new files. Two cuts make THREE pieces, because each cut is a boundary. The source is never modified. Cut points outside the clip are dropped rather than refused, and duplicates collapse.',
+    inputSchema: {
+      path: absPath.describe('The clip to split. It is not modified.'),
+      cutSeconds: z
+        .array(z.number().positive())
+        .min(1)
+        .describe('Times to cut at, in seconds. Two cuts produce three pieces.'),
+      outputDir: absPath.optional().describe('Where to put the pieces. Default the source\'s folder.'),
+      prefix: z.string().optional().describe('Filename stem for the pieces. Default the source name plus "-part".'),
+      accurate: z.boolean().optional().describe('Re-encode instead of copying. Default false.')
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const pieces = await splitVideo(args)
+      const list = pieces.map((p, i) => `  ${i + 1}. ${p.path} - ${sayDuration(p.durationSeconds)}`).join('\n')
+      return ok(`Split into ${pieces.length} piece(s):\n${list}\nThe source is unchanged.`)
+    })
+)
+
+server.registerTool(
+  'video_concat',
+  {
+    title: 'Join videos together',
+    description:
+      'Joins clips end to end into one new file and leaves every source alone. Pieces are joined without re-encoding when they share codecs and resolution, which is the normal case for cuts of one recording. Set reencode: true when they do not match, or when ffmpeg reports that it cannot copy the streams.',
+    inputSchema: {
+      paths: z.array(absPath).min(2).describe('The clips to join, in order. Two or more.'),
+      output: absPath.optional().describe('Where to write the result. Default a new file beside the first input.'),
+      reencode: z.boolean().optional().describe('Re-encode instead of copying. Default false.')
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const out = await concatVideos(args)
+      return ok(
+        `Joined ${args.paths.length} clips into ${out.path} - ${sayDuration(out.durationSeconds)}, ` +
+          `${(out.bytes / 1024 / 1024).toFixed(1)} MB, streams ${out.copied ? 'copied' : 're-encoded'}. ` +
+          `Every source is unchanged.`
+      )
+    })
+)
+
+server.registerTool(
+  'video_frame',
+  {
+    title: 'Save a frame from a video as an image',
+    description:
+      'Writes one still frame from a clip as a JPEG, for a thumbnail or for looking at a clip without playing it. Seeks exactly, so the frame is the moment asked for. Writes a new file; nothing is modified.',
+    inputSchema: {
+      path: absPath.describe('The clip to read. It is not modified.'),
+      atSeconds: z.number().min(0).optional().describe('Exact moment to grab, in seconds. Takes precedence over fraction.'),
+      fraction: z
+        .number()
+        .min(0)
+        .max(1)
+        .optional()
+        .describe('Where in the clip to grab, 0 to 1. Default 0.25, a quarter of the way in.'),
+      output: absPath.optional().describe('Where to write the JPEG. Default a new file beside the source.'),
+      width: z.number().int().positive().optional().describe('Scale the frame to this width, keeping the aspect ratio.')
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const out = await extractFrame(args)
+      return ok(`Saved the frame at ${out.atSeconds.toFixed(3)}s to ${out.path} (${(out.bytes / 1024).toFixed(0)} KB).`)
+    })
+)
+
 process.on('uncaughtException', (err) => {
   console.error('[openpics-mcp] uncaught:', err)
 })

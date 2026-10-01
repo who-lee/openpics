@@ -82,10 +82,15 @@ function toPhoto(path: string, root: string, withSize: boolean): Photo | null {
     path,
     name,
     ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '',
+    // Always a picture. This lister only accepts picture extensions, so it never
+    // reaches the video half of the library, and saying so explicitly beats
+    // leaving a field to guess from.
+    kind: 'photo',
     bytes,
     mtime,
     width: size?.width ?? 0,
     height: size?.height ?? 0,
+    durationSeconds: 0,
     relDir: relative(root, path.slice(0, path.lastIndexOf('\\')))
   }
 }

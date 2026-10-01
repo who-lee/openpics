@@ -1,19 +1,39 @@
+/**
+ * One thing the library can show.
+ *
+ * Called `Photo` because that is what it was when the app was pictures only, and
+ * renaming it would touch every grid, layout and panel for no gain. What changed
+ * is `kind`: a library item is now either a still picture or a video clip, and
+ * enough code branches on that to be worth having it as a field rather than
+ * re-deriving it from the extension everywhere.
+ *
+ * A clip carries no `width`/`height` from the scan. Reading it means running
+ * ffprobe, and a scan over a whole drive would then be tens of thousands of
+ * process launches - minutes of fan noise before the first tile appears, for
+ * numbers the viewer learns for free from the file itself the moment it opens it.
+ * So a clip starts at 0 and is measured on demand. `aspectOf` falls back to 4:3
+ * until then, which is why the layout code has always had that fallback.
+ */
 export interface Photo {
-  /** Absolute path on disk. Doubles as the stable identity of the photo. */
+  /** Absolute path on disk. Doubles as the stable identity of the item. */
   path: string
   /** File name including extension. */
   name: string
   /** Lowercase extension without the dot, e.g. "jpg". */
   ext: string
+  /** What this item is. Decided by the scanner from the file name. */
+  kind: 'photo' | 'video'
   /** Size on disk in bytes. */
   bytes: number
   /** Last-modified time in epoch milliseconds. */
   mtime: number
-  /** Pixel width, or 0 when the header could not be parsed. */
+  /** Pixel width, or 0 when not yet known. */
   width: number
-  /** Pixel height, or 0 when the header could not be parsed. */
+  /** Pixel height, or 0 when not yet known. */
   height: number
-  /** Directory the photo was found in, relative to the scan root. "" for the root itself. */
+  /** Duration in seconds for a clip, or 0 for a picture and for a not-yet-measured clip. */
+  durationSeconds: number
+  /** Directory the item was found in, relative to the scan root. "" for the root itself. */
   relDir: string
 }
 

@@ -3,6 +3,7 @@ import { readdirSync, statfsSync, statSync, type Dirent } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { setImmediate as yieldToLoop } from 'node:timers/promises'
 import { isImage, type DriveInfo, type Photo, type ScanMode, type ScanProgress, type ScanResult } from '../shared/protocol'
+import { isVideoName } from '../shared/video'
 import { probeDimensions, safeStat } from './imageinfo'
 
 /** Upper bound on returned entries. A mis-picked drive root should not hang the UI. */
@@ -189,14 +190,31 @@ async function walk(opts: WalkOptions, onProgress?: (p: ScanProgress) => void): 
           continue
         }
         if (!entry.isFile() && !entry.isSymbolicLink()) continue
-        if (!isImage(name)) continue
+
+        // Pictures and clips are both library items now, but they are recognised
+        // by different lists. Video extensions live in `shared/video.ts` so the
+        // MCP tools and the renderer agree with the scanner on what a clip is.
+        const kind: 'photo' | 'video' | null = isImage(name)
+          ? 'photo'
+          : isVideoName(name)
+            ? 'video'
+            : null
+        // Written as a null check rather than a truthiness check so the narrowing
+        // carries into `kind` below; `if (!kind)` leaves it `| null` for tsc.
+        if (kind === null) continue
 
         const stat = safeStat(full)
         if (!stat || stat.bytes === 0) continue
 
         const ext = name.slice(name.lastIndexOf('.') + 1).toLowerCase()
-        const dims = probeDimensions(full, ext)
-        if (dims.width === 0 || dims.height === 0) state.unreadable += 1
+        // Only a picture's header is read here. A clip would need ffprobe, and a
+        // whole-drive scan would then be one process launch per video; the viewer
+        // gets the real size off the file for free when it opens it.
+        const dims = kind === 'photo' ? probeDimensions(full, ext) : { width: 0, height: 0 }
+        // Only a picture that failed to parse counts as unreadable. A clip with
+        // no dimensions yet is expected, and counting it would report thousands
+        // of broken files on a perfectly healthy machine.
+        if (kind === 'photo' && (dims.width === 0 || dims.height === 0)) state.unreadable += 1
 
         const rel = relative(root, dir).replace(/\\/g, '/')
         // In computer mode every root is a drive, so the label is the drive letter.
@@ -209,10 +227,12 @@ async function walk(opts: WalkOptions, onProgress?: (p: ScanProgress) => void): 
           path: full,
           name,
           ext,
+          kind,
           bytes: stat.bytes,
           mtime: stat.mtime,
           width: dims.width,
           height: dims.height,
+          durationSeconds: 0,
           relDir: relDir === '.' ? '' : relDir
         })
         await breathe()
