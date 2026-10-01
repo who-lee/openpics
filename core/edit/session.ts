@@ -1,3 +1,4 @@
+import type { KeepSide, OutputSettings, Resize } from '../../shared/edit'
 import { allocateRaster, type Raster } from '../image/image'
 import { EditError } from './errors'
 import { EditHistory } from './history'
@@ -12,6 +13,13 @@ import {
   rotateQuarterTurns,
   type AdjustOptions
 } from './transform'
+
+// These three describe the finished picture rather than any raster operation, and
+// both the editor panel and the agent tools have to name them, so they are declared
+// once in `shared` and re-exported here for the callers that already get them from
+// this module.
+export type { AdjustOptions, KeepSide, OutputSettings, Resize }
+
 
 /**
  * An edit in progress: the original pixels plus how much of each one survives.
@@ -50,50 +58,14 @@ export interface EditSession {
 }
 
 /**
- * One sizing instruction. Exactly one field is set at a time.
+ * `OutputSettings` and `Resize` are declared in `shared/edit` and re-exported above.
  *
- * Named rather than left inline so the tool layer can build one of these from a
- * single chosen key without hand-writing the type, which is what let it store a
- * `null` percent through as if it were a number.
- */
-export interface Resize {
-  width?: number
-  height?: number
-  percent?: number
-  longestEdge?: number
-}
-
-/**
- * Geometry and tone applied to the composite, in a fixed order.
- *
- * Order is not negotiable and is the order that makes each step mean what it
- * says: crop first so nothing else pays for pixels that are being thrown away,
- * then rotate and flip because those change what "width" and "height" mean,
+ * Their order of application is fixed and is the order that makes each step mean
+ * what it says: crop first so nothing else pays for pixels that are being thrown
+ * away, then rotate and flip because those change what "width" and "height" mean,
  * then resize so it works on the smaller picture, then colour, and finally the
  * background flatten, which is only meaningful once everything else has settled.
  */
-export interface OutputSettings {
-  /** Clip to this box, in source pixels. */
-  crop?: { x: number; y: number; width: number; height: number }
-  /** Crop to the non-transparent content instead of a given box. */
-  trim?: boolean
-  /** Quarter turns clockwise: 1 is 90 degrees. */
-  rotate?: number
-  flip?: 'horizontal' | 'vertical'
-  resize?: Resize
-  adjust?: AdjustOptions
-  /**
-   * Composite onto this colour instead of leaving transparency.
-   *
-   * A 6-digit hex string, because that is what a caller has in hand when it reads
-   * one out of a brand guide, and a colour picker produces the same thing. Not
-   * RGBA: a background colour with its own transparency is a question nobody asks.
-   */
-  background?: string
-}
-
-/** Which side of a wand selection is the thing worth keeping. */
-export type KeepSide = 'region' | 'rest'
 
 /**
  * Ceiling on how large an image we will hold a session for.
@@ -349,6 +321,11 @@ export interface SessionInfo extends MaskStats {
   hasEdits: boolean
 }
 
+/** Whether a session carries at least one output setting. */
+export function hasOutputSettings(session: EditSession): boolean {
+  return session.output !== undefined && Object.keys(session.output).length > 0
+}
+
 export function inspectSession(session: EditSession): SessionInfo {
   const stats = maskStats(session.mask)
   let transparent = 0
@@ -358,6 +335,11 @@ export function inspectSession(session: EditSession): SessionInfo {
   return {
     ...stats,
     opaqueSource: transparent === 0,
-    hasEdits: stats.removed > 0 || stats.softened > 0
+    // Output settings count. A session that has only had its picture rotated or
+    // cropped has been edited, and saying otherwise is not a rounding detail: the
+    // renderer uses this to decide whether there are unsaved changes, so a mask-only
+    // test would let a rotated-but-not-cut-out picture be handed to the desktop as
+    // the untouched original.
+    hasEdits: stats.removed > 0 || stats.softened > 0 || hasOutputSettings(session)
   }
 }

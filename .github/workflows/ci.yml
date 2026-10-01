@@ -73,6 +73,14 @@ jobs:
       - name: Run MCP test suite
         run: node tests/mcp.test.mjs
 
+      # Every MCP edit tool funnels into these handlers, so driving them
+      # directly is cheaper than reaching each defect through the protocol.
+      - name: Build editor test bundle
+        run: npm run build:test
+
+      - name: Run editor test suite
+        run: node tests/editing.test.mjs
+
       - name: Verify the MCP server answers
         shell: pwsh
         run: |

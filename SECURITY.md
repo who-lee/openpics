@@ -33,6 +33,12 @@ are:
 - **IPC** (`electron/preload.ts`, `electron/main.ts`) — the renderer is sandboxed
   and should reach the filesystem only through the named bridge channels. A
   bypass is a vulnerability.
+- **Terminal sessions** (`electron/terminal.ts`) — the renderer asks for a shell
+  from a fixed list and then drives it by opaque id. Every call must be refused
+  unless it came from the window that opened the session, and the setting that
+  turns the feature off has to be enforced in the main process rather than taken
+  on trust from the renderer. Reaching a shell without that setting is a
+  vulnerability.
 - **Wallpaper handling** (`core/wallpaper.ts`) — takes a path and a fit mode and
   shells out to PowerShell. Injection, or a path that is not a real saved image,
   is a vulnerability.

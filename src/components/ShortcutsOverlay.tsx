@@ -33,6 +33,14 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['F', 'full screen'],
       ['I', 'show details']
     ]
+  },
+  {
+    title: 'App',
+    items: [
+      ['Ctrl + `', 'show or hide the terminal'],
+      ['Ctrl + H', 'hide the window'],
+      ['?', 'keyboard shortcuts']
+    ]
   }
 ]
 

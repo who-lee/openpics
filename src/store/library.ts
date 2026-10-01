@@ -41,6 +41,8 @@ interface LibraryState {
   showInfo: boolean
   showShortcuts: boolean
   showSettings: boolean
+  /** Whether the terminal drawer is showing. Its shells keep running when hidden. */
+  terminalOpen: boolean
   query: string
 
   boot: () => Promise<void>
@@ -66,6 +68,8 @@ interface LibraryState {
   toggleInfo: () => void
   toggleShortcuts: () => void
   setShowSettings: (open: boolean) => void
+  setTerminalOpen: (open: boolean) => void
+  toggleTerminal: () => void
 }
 
 function sortPhotos(raw: Photo[], key: SortKey, dir: SortDir): Photo[] {
@@ -192,6 +196,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   showInfo: false,
   showShortcuts: false,
   showSettings: false,
+  terminalOpen: false,
   query: '',
 
   async boot() {
@@ -437,6 +442,14 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   setShowSettings(open) {
     set({ showSettings: open })
+  },
+
+  setTerminalOpen(open) {
+    set({ terminalOpen: open })
+  },
+
+  toggleTerminal() {
+    set({ terminalOpen: !get().terminalOpen })
   }
 }))
 

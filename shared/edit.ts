@@ -114,7 +114,6 @@ export interface PreviewOptions {
   /** Longest edge of the returned picture. Default 1600. */
   maxEdge?: number
 }
-
 export interface ApplyOptions {
   feather?: number
   /** Where to write. The extension is corrected to .png. */
@@ -145,4 +144,114 @@ export interface BrushReply extends EditInfo {
   preview?: EditPreview
   /** Present only when nothing changed. */
   note?: string
+}
+
+/**
+ * The geometry and tone applied to the finished picture.
+ *
+ * These live here rather than beside the raster code because the editor panel and
+ * the agent-facing tools have to agree on them exactly: a crop asked for in the UI
+ * and a crop asked for over MCP are the same instruction, and two declarations of
+ * "rotate by quarter turns" that drift apart is how the panel ends up quietly
+ * ignoring what the tools do.
+ */
+export interface Resize {
+  width?: number
+  height?: number
+  percent?: number
+  longestEdge?: number
+}
+
+export interface AdjustOptions {
+  /** -100 to 100. Positive lightens. */
+  brightness?: number
+  /** -100 to 100. Positive raises contrast about mid grey. */
+  contrast?: number
+  /** -100 to 100. Positive saturates, negative desaturates. */
+  saturation?: number
+  /** 0 to 1. Multiplies alpha. Only useful for knocking a cutout back. */
+  opacity?: number
+}
+
+export interface OutputSettings {
+  /** Clip to this box, in source pixels. */
+  crop?: { x: number; y: number; width: number; height: number }
+  /** Crop to the non-transparent content instead of a given box. */
+  trim?: boolean
+  /** Quarter turns clockwise: 1 is 90 degrees. */
+  rotate?: number
+  flip?: 'horizontal' | 'vertical'
+  resize?: Resize
+  adjust?: AdjustOptions
+  /** Composite onto this 6-digit hex colour instead of leaving transparency. */
+  background?: string
+}
+
+/** Which side of a selection is the thing worth keeping. */
+export type KeepSide = 'region' | 'rest'
+
+/**
+ * The mask fixes the refinement step understands.
+ *
+ * `feather` is deliberately absent: softening an edge is a render-time choice rather
+ * than a change to the mask, so it travels with preview and save and is not
+ * something undo can put back.
+ */
+export type RefineOperation =
+  | 'grow'
+  | 'shrink'
+  | 'despeckle'
+  | 'fill_holes'
+  | 'keep_largest'
+  | 'threshold'
+
+/**
+ * One selection instruction.
+ *
+ * A discriminated union rather than a bag of optional fields, because "a rectangle
+ * at 0,0" and "a rectangle at 0,0 with an ellipse radius" are not two readings of
+ * one message, they are two different messages that happen to share a shape. The
+ * union makes the renderer say which it meant and makes main able to reject the
+ * combinations that do not exist.
+ */
+export type SelectionCommand =
+  | {
+      kind: 'wand'
+      x: number
+      y: number
+      tolerance?: number
+      keep: KeepSide
+      contiguous?: boolean
+    }
+  | { kind: 'rect'; x: number; y: number; width: number; height: number; keep: KeepSide }
+  | { kind: 'ellipse'; x: number; y: number; width: number; height: number; keep: KeepSide }
+  | { kind: 'polygon'; points: Array<{ x: number; y: number }>; keep: KeepSide }
+  | { kind: 'all'; state: 'kept' | 'removed' }
+  | { kind: 'invert' }
+  | { kind: 'refine'; operation: RefineOperation; radius?: number; level?: number }
+
+/** What undo and redo have left to work with. */
+export interface HistoryStep {
+  label: string
+}
+
+export interface HistoryState {
+  canUndo: boolean
+  canRedo: boolean
+  /** Most recent last, oldest first, capped by the history itself. */
+  steps: HistoryStep[]
+}
+
+/**
+ * The result of an undo or redo.
+ *
+ * Flat rather than nested under `info`, matching the brush reply: these are calls the
+ * panel makes mid-edit and it wants the new picture and the new button states in one
+ * message, without reaching through two levels to get at either.
+ */
+export interface HistoryReply extends EditInfo, HistoryState {
+  /** Present when the step actually moved the mask. */
+  preview?: EditPreview
+  /** The step that was walked back or replayed, or null when there was none. */
+  label: string | null
 }

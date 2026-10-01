@@ -6,6 +6,7 @@ import { Viewer } from './components/Viewer'
 import { StatusBar } from './components/StatusBar'
 import { ShortcutsOverlay } from './components/ShortcutsOverlay'
 import { SettingsPanel } from './components/SettingsPanel'
+import { TerminalPanel } from './components/TerminalPanel'
 import { useLibrary, useOpenFilesSubscription } from './store/library'
 import { bridge } from './lib/bridge'
 
@@ -19,6 +20,7 @@ export default function App() {
     toggleInfo,
     toggleShortcuts,
     toggleSlideshow,
+    toggleTerminal,
     open,
     cursor,
     select,
@@ -97,6 +99,9 @@ export default function App() {
         } else if (event.key.toLowerCase() === 'h') {
           event.preventDefault()
           void bridge.win.hide()
+        } else if (event.key === '`') {
+          event.preventDefault()
+          toggleTerminal()
         }
         return
       }
@@ -179,6 +184,7 @@ export default function App() {
     toggleShortcuts,
     toggleSlideshow,
     toggleInfo,
+    toggleTerminal,
     setQuery
   ])
 
@@ -201,6 +207,7 @@ export default function App() {
       <Titlebar />
       <Toolbar />
       <Grid />
+      <TerminalPanel />
       <StatusBar />
       <Viewer />
       <ShortcutsOverlay />

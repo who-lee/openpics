@@ -9,6 +9,7 @@ import {
   Question,
   Rows,
   Sun,
+  TerminalWindow,
   X
 } from '@phosphor-icons/react'
 import { useEffect, useRef } from 'react'
@@ -46,8 +47,17 @@ export function Toolbar() {
   const photos = useLibrary((s) => s.photos)
   const progress = useLibrary((s) => s.progress)
   const showSettings = useLibrary((s) => s.showSettings)
-  const { patch, setSort, setQuery, pickFolder, toggleInfo, toggleShortcuts, toggleSlideshow } =
-    useLibrary()
+  const terminalOpen = useLibrary((s) => s.terminalOpen)
+  const {
+    patch,
+    setSort,
+    setQuery,
+    pickFolder,
+    toggleInfo,
+    toggleShortcuts,
+    toggleSlideshow,
+    toggleTerminal
+  } = useLibrary()
   const setShowSettings = useLibrary((s) => s.setShowSettings)
   const cancelScan = useLibrary((s) => s.cancelScan)
 
@@ -189,6 +199,9 @@ export function Toolbar() {
           ) : (
             <ArrowsOut size={16} weight="regular" />
           )}
+        </IconButton>
+        <IconButton label="Terminal (Ctrl+`)" active={terminalOpen} onClick={() => toggleTerminal()}>
+          <TerminalWindow size={16} weight="regular" />
         </IconButton>
         <IconButton
           label="Settings"

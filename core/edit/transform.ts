@@ -1,5 +1,11 @@
 import { allocateRaster, type Raster } from '../image/image'
+import type { AdjustOptions } from '../../shared/edit'
 import { EditError } from './errors'
+
+// Declared in `shared` so the editor panel and the agent tools describe the same
+// adjustments, and re-exported here so everything that already imported it from
+// this module keeps working.
+export type { AdjustOptions }
 
 /**
  * Geometry and tone: crop, rotate, flip, resize, and the colour controls.
@@ -222,17 +228,6 @@ export function resizeRaster(
     }
   }
   return out
-}
-
-export interface AdjustOptions {
-  /** -100 to 100. Positive lightens. */
-  brightness?: number
-  /** -100 to 100. Positive raises contrast about mid grey. */
-  contrast?: number
-  /** -100 to 100. Positive saturates, negative desaturates. */
-  saturation?: number
-  /** Multiplies alpha, 0-1. Only useful for a knock-back to soften a cutout. */
-  opacity?: number
 }
 
 /**

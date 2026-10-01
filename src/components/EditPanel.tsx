@@ -1,5 +1,12 @@
 import { useState } from 'react'
-import { Eraser, ImageSquare, PaintBrush, SpinnerGap } from '@phosphor-icons/react'
+import {
+  ArrowCounterClockwise,
+  ArrowClockwise,
+  Eraser,
+  ImageSquare,
+  PaintBrush,
+  SpinnerGap
+} from '@phosphor-icons/react'
 import type { WallpaperFit } from '@shared/protocol'
 import {
   RADIUS_MAX_PCT,
@@ -20,6 +27,23 @@ const FITS: { value: WallpaperFit; label: string }[] = [
   { value: 'tile', label: 'Tile' }
 ]
 
+/**
+ * What each edge refinement is for, in the words someone fixing a cutout would use.
+ *
+ * The radius is in pixels of the source picture, so a big photo needs a bigger
+ * number than a small one. It is left off the controls that do not use it rather
+ * than defaulted to a number that would be wrong on half the pictures out there.
+ */
+const REFINES: { operation: 'grow' | 'shrink' | 'despeckle' | 'fill_holes' | 'keep_largest'; label: string; title: string }[] = [
+  { operation: 'grow', label: 'Grow', title: 'Take in a few pixels around the edge' },
+  { operation: 'shrink', label: 'Shrink', title: 'Give back a few pixels around the edge' },
+  { operation: 'despeckle', label: 'Despeckle', title: 'Drop the isolated bits left behind' },
+  { operation: 'fill_holes', label: 'Fill holes', title: 'Close the gaps inside the subject' },
+  { operation: 'keep_largest', label: 'Largest only', title: 'Discard everything but the biggest piece' }
+]
+
+const ROTATIONS = [0, 1, 2, 3]
+
 interface EditPanelProps {
   editor: Editor
 }
@@ -32,7 +56,13 @@ interface EditPanelProps {
  */
 export function EditPanel({ editor }: EditPanelProps) {
   const [fit, setFit] = useState<WallpaperFit>('fill')
+  const [tool, setTool] = useState<'refine' | 'adjust'>('refine')
+  const [edgeRadius, setEdgeRadius] = useState(2)
   const working = editor.busy !== null
+  const open = editor.info !== null
+
+  const adjust = editor.output.adjust ?? {}
+  const setAdjust = (next: Partial<typeof adjust>): void => editor.setOutput({ adjust: next })
 
   return (
     <aside className="flex w-[248px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-surface px-3 py-3">
@@ -40,7 +70,7 @@ export function EditPanel({ editor }: EditPanelProps) {
         <h2 className="text-[13px] font-semibold text-ink">Edit</h2>
         <p className="num mt-1 text-[11px] text-ink-3">
           {editor.info
-            ? `${editor.info.width} x ${editor.info.height} · ${editor.removedPct.toFixed(1)}% removed`
+            ? `${editor.projected ? `${editor.projected.width} x ${editor.projected.height} → ` : ''}${editor.removedPct.toFixed(1)}% removed`
             : 'Nothing open'}
         </p>
       </div>
@@ -49,11 +79,40 @@ export function EditPanel({ editor }: EditPanelProps) {
         variant="solid"
         size="sm"
         className="w-full"
-        disabled={working || editor.info === null}
+        disabled={working || !open}
         onClick={() => void editor.cutout()}
       >
         Remove the background
       </Button>
+
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          className="flex-1"
+          disabled={working || !editor.history.canUndo}
+          onClick={() => void editor.undo()}
+          title="Undo the last change to the selection"
+        >
+          <ArrowCounterClockwise size={13} weight="regular" />
+          Undo
+        </Button>
+        <Button
+          size="sm"
+          className="flex-1"
+          disabled={working || !editor.history.canRedo}
+          onClick={() => void editor.redo()}
+          title="Redo what was just undone"
+        >
+          <ArrowClockwise size={13} weight="regular" />
+          Redo
+        </Button>
+      </div>
+      {editor.history.steps.length > 0 ? (
+        <p className="-mt-2 text-[11px] leading-snug text-ink-3">
+          {editor.history.steps.length} change{editor.history.steps.length === 1 ? '' : 's'}, newest{' '}
+          <span className="text-ink-2">{editor.history.steps[editor.history.steps.length - 1]!.label}</span>
+        </p>
+      ) : null}
 
       <div className="flex flex-col gap-2">
         <Slider
@@ -96,6 +155,174 @@ export function EditPanel({ editor }: EditPanelProps) {
         />
       </div>
 
+      <div className="flex flex-col gap-2 border-t border-line pt-3">
+        <Segmented
+          label="Adjust"
+          value={tool}
+          onChange={setTool}
+          options={[
+            { value: 'refine', label: 'Selection', title: 'Tidy the cut-out edge' },
+            { value: 'adjust', label: 'Picture', title: 'Crop, rotate, resize and tone' }
+          ]}
+        />
+
+        {tool === 'refine' ? (
+          <div className="flex flex-col gap-2">
+            <Slider
+              label="Edge amount"
+              value={edgeRadius}
+              min={1}
+              max={24}
+              step={1}
+              onChange={setEdgeRadius}
+              disabled={working}
+              suffix="px"
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {REFINES.map((item) => (
+                <Button
+                  key={item.operation}
+                  size="sm"
+                  disabled={working || !open}
+                  title={item.title}
+                  onClick={() =>
+                    void editor.select({
+                      kind: 'refine',
+                      operation: item.operation,
+                      // The two operations that are not about the edge do not take
+                      // an amount, and sending one they ignore would be a lie about
+                      // what the button does.
+                      ...(item.operation === 'fill_holes' || item.operation === 'keep_largest'
+                        ? {}
+                        : { radius: edgeRadius })
+                    })
+                  }
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+            <div className="flex gap-1.5">
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={working || !open}
+                onClick={() => void editor.select({ kind: 'invert' })}
+              >
+                Invert
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={working || !open}
+                onClick={() => void editor.select({ kind: 'all', state: 'removed' })}
+                title="Hide the whole picture"
+              >
+                Clear
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <Slider
+              label="Brightness"
+              value={adjust.brightness ?? 0}
+              min={-100}
+              max={100}
+              step={2}
+              onChange={(v) => setAdjust({ brightness: v === 0 ? undefined : v })}
+              disabled={working}
+            />
+            <Slider
+              label="Contrast"
+              value={adjust.contrast ?? 0}
+              min={-100}
+              max={100}
+              step={2}
+              onChange={(v) => setAdjust({ contrast: v === 0 ? undefined : v })}
+              disabled={working}
+            />
+            <Slider
+              label="Saturation"
+              value={adjust.saturation ?? 0}
+              min={-100}
+              max={100}
+              step={2}
+              onChange={(v) => setAdjust({ saturation: v === 0 ? undefined : v })}
+              disabled={working}
+            />
+            <Slider
+              label="Scale"
+              value={editor.output.resize?.percent ?? 100}
+              min={10}
+              max={200}
+              step={5}
+              onChange={(v) => editor.setOutput({ resize: { percent: v === 100 ? undefined : v } })}
+              disabled={working}
+              suffix="%"
+            />
+            <div className="flex gap-1.5">
+              {ROTATIONS.map((turns) => (
+                <Button
+                  key={turns}
+                  size="sm"
+                  className="flex-1"
+                  disabled={working || !open}
+                  onClick={() => editor.setOutput({ rotate: turns === 0 ? undefined : turns })}
+                  title={turns === 0 ? 'Straighten the picture' : `Rotate ${turns * 90} degrees`}
+                >
+                  {turns * 90}°
+                </Button>
+              ))}
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={working || !open}
+                onClick={() =>
+                  editor.setOutput({
+                    flip: editor.output.flip === 'horizontal' ? undefined : 'horizontal'
+                  })
+                }
+                title="Mirror the picture left to right"
+              >
+                Flip
+              </Button>
+            </div>
+            <Button
+              size="sm"
+              className="w-full"
+              disabled={working || !open}
+              onClick={() => editor.setOutput({ trim: editor.output.trim !== true })}
+              title="Crop away the edges until only what is left is showing"
+            >
+              {editor.output.trim === true ? 'Keep the full picture' : 'Trim to the subject'}
+            </Button>
+            <div className="flex gap-1.5">
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={working || !open}
+                onClick={() =>
+                  editor.setOutput({ background: editor.output.background === '#ffffff' ? undefined : '#ffffff' })
+                }
+                title="Put the cut-out on white instead of leaving it see-through"
+              >
+                {editor.output.background ? 'No fill' : 'White fill'}
+              </Button>
+              <Button
+                size="sm"
+                className="flex-1"
+                disabled={working || !Object.keys(editor.output).length}
+                onClick={editor.clearOutput}
+                title="Put every setting on this tab back to how it was"
+              >
+                Reset
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-1.5">
         <Button
           size="sm"
@@ -109,7 +336,15 @@ export function EditPanel({ editor }: EditPanelProps) {
           label="Start over"
           size="sm"
           disabled={working || editor.info?.hasEdits !== true}
-          onClick={() => void editor.reset()}
+          onClick={() => {
+            // The session's own reset keeps the output settings on purpose, because
+            // "start over with the picture" should not throw away a crop somebody
+            // chose deliberately. This button says it reverts everything, so it has
+            // to mean that: the Picture tab's Reset is the one that touches only the
+            // output settings.
+            editor.clearOutput()
+            void editor.reset()
+          }}
         >
           <Eraser size={14} weight="regular" />
         </IconButton>
