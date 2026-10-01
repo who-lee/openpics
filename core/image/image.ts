@@ -1,17 +1,9 @@
-/**
- * A decoded image: straight 8-bit RGBA, row-major, no premultiplication.
- *
- * Every codec in this folder converts to exactly this, so the editing code never
- * needs to know which format a photo arrived in. The editing ops all want
- * per-pixel access, and a single representation is what makes that possible
- * without a conversion at every step.
- */
-export interface Raster {
-  width: number
-  height: number
-  /** `width * height * 4` bytes: red, green, blue, alpha. */
-  data: Uint8ClampedArray
-}
+// The image shape, its size limit and the allocation helper live in `raster.ts`,
+// which is where the codecs get them from. Re-exported here so the rest of the app
+// keeps importing the one module it already knows.
+export { allocateRaster, ImageError, MAX_EDGE, type Raster } from './raster'
+
+import { ImageError, type Raster } from './raster'
 
 /** What we can read and what we can write, stated up front rather than discovered. */
 export const READABLE = ['png', 'jpeg'] as const
@@ -20,18 +12,9 @@ export const WRITABLE = ['png'] as const
 export type ReadableFormat = (typeof READABLE)[number]
 export type WritableFormat = (typeof WRITABLE)[number]
 
-/** Longest edge we will decode. A cutout has to hold the mask and the pixels. */
-export const MAX_EDGE = 20000
-
-export class ImageError extends Error {
-  constructor(message: string) {
-    super(message)
-    this.name = 'ImageError'
-  }
-}
-
-import { decodePng } from './png'
-import { decodeJpeg } from './jpeg'
+import { closeSync, openSync, readSync } from 'node:fs'
+import { decodePng, probePngSize } from './png'
+import { decodeJpeg, probeJpegSize } from './jpeg'
 
 /**
  * Identifies a format from its leading bytes rather than its extension.
@@ -55,6 +38,46 @@ export function isReadable(path: string): boolean {
   return (READABLE as readonly string[]).includes(ext)
 }
 
+/** Enough bytes for a PNG header; generous enough to reach most JPEG SOF segments. */
+const PROBE_BYTES = 64 * 1024
+
+/**
+ * The size of an encoded image, read from its header alone.
+ *
+ * This is the cheap half of decoding: it opens the file, reads at most one
+ * 64kb buffer, and returns. Nothing is decompressed and no raster is allocated,
+ * so a caller can size up a whole folder for the cost of the directory walk
+ * itself. `decodeImage` remains the answer when the pixels are actually wanted.
+ *
+ * Uses the file's magic bytes rather than its extension, matching `sniffFormat`,
+ * so a photograph renamed to the wrong suffix still reports its true size.
+ *
+ * Returns null for an unreadable file or an unrecognised one, never throws.
+ */
+export function probeImageSize(path: string): { width: number; height: number } | null {
+  let handle: number
+  try {
+    handle = openSync(path, 'r')
+  } catch {
+    return null
+  }
+  try {
+    // One buffer per call rather than a shared one: this is called from a
+    // directory walk that may run on several threads, and a module-level
+    // scratch buffer would be a data race waiting to happen.
+    const buf = Buffer.allocUnsafe(PROBE_BYTES)
+    const read = readSync(handle, buf, 0, PROBE_BYTES, 0)
+    const head = buf.subarray(0, read)
+    const format = sniffFormat(head)
+    if (!format) return null
+    return format === 'png' ? probePngSize(head) : probeJpegSize(head)
+  } catch {
+    return null
+  } finally {
+    closeSync(handle)
+  }
+}
+
 /**
  * Decodes a supported image to RGBA.
  *
@@ -71,6 +94,4 @@ export function decodeImage(buf: Buffer): Raster {
   return format === 'png' ? decodePng(buf) : decodeJpeg(buf)
 }
 
-export function allocateRaster(width: number, height: number): Raster {
-  return { width, height, data: new Uint8ClampedArray(width * height * 4) }
-}
+

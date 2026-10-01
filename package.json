@@ -34,6 +34,7 @@
     "build": "npm run typecheck && electron-vite build",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.mcp.json --noEmit",
     "build:mcp": "tsc -p tsconfig.mcp.json",
+    "test": "npm run build:mcp && node tests/mcp.test.mjs",
     "mcp": "npm run build:mcp && node dist-mcp/mcp/server.js",
     "package": "npm run build && electron-builder --win --x64",
     "package:dir": "npm run build && electron-builder --win --x64 --dir"

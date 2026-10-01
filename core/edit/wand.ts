@@ -37,6 +37,18 @@ export interface WandOptions {
    * coordinate is given and `border` otherwise.
    */
   from?: 'point' | 'border'
+  /**
+   * Whether the region has to be connected to the seed. Default true.
+   *
+   * Flood fill is the right default because it means a matching patch of *subject*
+   * somewhere across the picture cannot be swallowed by a background that happens
+   * to be the same colour - the hair-over-sky case. Turning it off is for the
+   * opposite problem: a background that is uneven enough that the fill stops at a
+   * shadow, where the correct answer really is "every pixel near this colour,
+   * wherever it is". It is a single pass over the picture rather than a fill, so
+   * it is also much faster on a large image.
+   */
+  contiguous?: boolean
 }
 
 export interface WandResult {
@@ -171,23 +183,42 @@ export function selectRegion(raster: Raster, options: WandOptions = {}): WandRes
   }
 
   const selection = new Uint8Array(width * height)
-  const stack = new IndexStack(Math.floor((width * height) / 64))
   const [refR, refG, refB] = reference
   let pixels = 0
 
-  function mark(index: number): void {
-    if (selection[index] === 1) return
+  // Does this pixel belong to the region? Split out because the global pass and
+  // the flood fill both need it and they must not drift apart on the transparent
+  // case, which is the easiest thing in this file to get subtly wrong.
+  const matches = (index: number): boolean => {
     const o = index * 4
     // A pixel with nothing in it has no colour to disagree about, so it always
     // passes. Without this, a PNG that was already cut out once presents a hole
     // full of undefined RGB that a light-background reference rejects, and the
     // fill cannot travel through its own transparent region to reach the rest.
-    if (data[o + 3]! > TRANSPARENT_ALPHA) {
-      const dr = Math.abs(data[o]! - refR)
-      const dg = Math.abs(data[o + 1]! - refG)
-      const db = Math.abs(data[o + 2]! - refB)
-      if (dr + dg + db > tolerance) return
+    if (data[o + 3]! <= TRANSPARENT_ALPHA) return true
+    const dr = Math.abs(data[o]! - refR)
+    const dg = Math.abs(data[o + 1]! - refG)
+    const db = Math.abs(data[o + 2]! - refB)
+    return dr + dg + db <= tolerance
+  }
+
+  if (options.contiguous === false) {
+    // Global match: one pass, no queue, and connectivity is not a constraint. No
+    // stack is allocated at all here, so a wide tolerance over a big picture costs
+    // one read per pixel rather than a frontier that could reach the whole image.
+    for (let index = 0; index < selection.length; index++) {
+      if (!matches(index)) continue
+      selection[index] = 1
+      pixels++
     }
+    return { width, height, selection, reference, pixels, from }
+  }
+
+  const stack = new IndexStack(Math.floor((width * height) / 64))
+
+  function mark(index: number): void {
+    if (selection[index] === 1) return
+    if (!matches(index)) return
     selection[index] = 1
     pixels++
     stack.push(index)

@@ -68,6 +68,11 @@ jobs:
       - name: Build MCP server
         run: npm run build:mcp
 
+      # Drives the built server over JSON-RPC the way a client would, covering
+      # every tool's schema, the editing code behind it, and the safety rules.
+      - name: Run MCP test suite
+        run: node tests/mcp.test.mjs
+
       - name: Verify the MCP server answers
         shell: pwsh
         run: |

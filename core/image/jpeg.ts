@@ -1,4 +1,4 @@
-import { allocateRaster, ImageError, MAX_EDGE, type Raster } from './image'
+import { allocateRaster, ImageError, MAX_EDGE, type Raster } from './raster'
 
 /**
  * Baseline and progressive JPEG decoding, in plain TypeScript.
@@ -97,6 +97,56 @@ interface ScanComponent {
 export function decodeJpeg(buf: Buffer): Raster {
   const state = new JpegDecoder(buf)
   return state.decode()
+}
+
+/** SOF markers that carry the frame size: baseline, extended and progressive. */
+const SIZE_MARKERS = new Set([0xc0, 0xc1, 0xc2])
+
+/**
+ * Reads the frame size out of a JPEG header without decoding the entropy data.
+ *
+ * Unlike PNG, a JPEG has no fixed offset to the size: it lives in an SOF segment
+ * that can sit behind any number of APPn and COM segments, so this walks the
+ * marker chain the same way the decoder does. That walk is still cheap, because
+ * every segment is skipped by its own declared length rather than scanned.
+ *
+ * Stops at SOS. Everything past the first scan is image data, not metadata, and
+ * a file truncated inside its first scan still has its size available in the
+ * segments already passed.
+ *
+ * Returns null when no frame header is in the bytes given, which means either a
+ * malformed file or a caller who read too few bytes to reach the SOF.
+ */
+export function probeJpegSize(buf: Buffer): { width: number; height: number } | null {
+  if (buf.length < 4 || buf[0] !== 0xff || buf[1] !== 0xd8) return null
+  let pos = 2
+  while (pos + 1 < buf.length) {
+    if (buf[pos] !== 0xff) {
+      pos += 1
+      continue
+    }
+    while (buf[pos] === 0xff) pos += 1
+    const marker = buf[pos]!
+    pos += 1
+    if (marker === 0xd9) return null // EOI with no frame header
+    // Standalone markers: no length field follows.
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue
+    if (pos + 2 > buf.length) return null
+    const length = buf.readUInt16BE(pos)
+    if (length < 2) return null
+    const segment = buf.subarray(pos + 2, pos + length)
+    pos += length
+    if (SIZE_MARKERS.has(marker)) {
+      // precision, then height, then width.
+      if (segment.length < 5) return null
+      const height = segment.readUInt16BE(1)
+      const width = segment.readUInt16BE(3)
+      if (!width || !height) return null
+      return { width, height }
+    }
+    if (marker === 0xda) return null // SOS: metadata is over, size never arrived
+  }
+  return null
 }
 
 class JpegDecoder {

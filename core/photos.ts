@@ -1,5 +1,6 @@
 import { readdirSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
+import { probeImageSize } from './image/image'
 import { IMAGE_EXTS } from '../shared/protocol'
 import type { Photo } from '../shared/types'
 
@@ -54,7 +55,16 @@ export function isImagePath(path: string): boolean {
   return IMAGE_EXTS.has(path.slice(dot + 1).toLowerCase())
 }
 
-function toPhoto(path: string, root: string): Photo | null {
+/**
+ * The single place a `Photo` is built, so no caller can forget a field.
+ *
+ * `withSize` costs one header read per file. Listing pays it too, deliberately:
+ * a caller sorting a folder by resolution or warning about files too large to
+ * cutout cannot do either without dimensions, and the cap on `findPhotos` already
+ * bounds the cost. A file whose header will not parse reports zero rather than
+ * being dropped, because it is still a real file at a real size.
+ */
+function toPhoto(path: string, root: string, withSize: boolean): Photo | null {
   let bytes: number
   let mtime: number
   try {
@@ -67,17 +77,15 @@ function toPhoto(path: string, root: string): Photo | null {
   }
   const name = path.slice(path.lastIndexOf('\\') + 1)
   const dot = name.lastIndexOf('.')
+  const size = withSize ? probeImageSize(path) : null
   return {
     path,
     name,
     ext: dot > 0 ? name.slice(dot + 1).toLowerCase() : '',
     bytes,
     mtime,
-    // Pixel dimensions come from the header parser the app already has. This
-    // walk only enumerates, so that a caller that needs dimensions can layer it
-    // on rather than have every listing pay for a header read.
-    width: 0,
-    height: 0,
+    width: size?.width ?? 0,
+    height: size?.height ?? 0,
     relDir: relative(root, path.slice(0, path.lastIndexOf('\\')))
   }
 }
@@ -130,7 +138,7 @@ export function findPhotos(root: string, opts: FindOptions = {}): Photo[] {
       }
       if (needles.length > 0 && !needles.some((n) => name.toLowerCase().includes(n))) continue
 
-      const photo = toPhoto(full, root)
+      const photo = toPhoto(full, root, true)
       if (photo) found.push(photo)
     }
   }
@@ -142,5 +150,5 @@ export function findPhotos(root: string, opts: FindOptions = {}): Photo[] {
 export function describePhoto(path: string): Photo | null {
   if (!isImagePath(path)) return null
   const root = path.slice(0, path.lastIndexOf('\\')) || '.'
-  return toPhoto(path, root)
+  return toPhoto(path, root, true)
 }

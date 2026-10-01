@@ -1,5 +1,5 @@
 import { deflateSync, inflateSync } from 'node:zlib'
-import { allocateRaster, ImageError, MAX_EDGE, type Raster } from './image'
+import { allocateRaster, ImageError, MAX_EDGE, type Raster } from './raster'
 
 /**
  * PNG reading and writing, in RGBA.
@@ -62,6 +62,28 @@ interface Header {
   bitDepth: number
   colorType: number
   interlace: number
+}
+
+/**
+ * Reads just the dimensions out of a PNG header, without decompressing anything.
+ *
+ * Only the first 24 bytes matter: the signature, then the length and type of the
+ * first chunk, which is always IHDR by the spec. That makes listing a folder of
+ * photographs cost a few bytes per file instead of a full decode, which is the
+ * difference between answering in milliseconds and answering in minutes.
+ *
+ * Returns null rather than throwing: a header probe is a best-effort lookup, and
+ * a caller asking "how big is this picture" is better served by "unknown" than by
+ * an exception. A real decode still rejects anything malformed.
+ */
+export function probePngSize(buf: Buffer): { width: number; height: number } | null {
+  if (buf.length < 24 || !SIGNATURE.equals(buf.subarray(0, 8))) return null
+  if (buf.toString('ascii', 12, 16) !== 'IHDR') return null
+  const width = buf.readUInt32BE(16)
+  const height = buf.readUInt32BE(20)
+  // A zero here means the file is not a usable PNG even though the header parsed.
+  if (!width || !height) return null
+  return { width, height }
 }
 
 export function decodePng(buf: Buffer): Raster {

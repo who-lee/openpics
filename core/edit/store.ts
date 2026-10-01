@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto'
 
 import type { ReadableFormat } from '../image/image'
 import { openSession } from './io'
-import { EditError, inspectSession, type EditSession } from './session'
+import { inspectSession, type EditSession } from './session'
+import { EditError } from './errors'
 
 /**
  * Keeping edits alive between calls.
