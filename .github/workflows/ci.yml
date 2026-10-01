@@ -68,22 +68,31 @@ jobs:
       - name: Build MCP server
         run: npm run build:mcp
 
-      - name: Verify the MCP server starts
+      - name: Verify the MCP server answers
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $server = 'dist-mcp/mcp/server.js'
           if (-not (Test-Path $server)) { throw "no server at $server" }
-          # Start it and confirm it speaks MCP rather than crashing on load.
-          $p = Start-Process -FilePath node `
-            -ArgumentList $server -PassThru -NoNewWindow `
-            -RedirectStandardInput "$env:TEMP/mcp-in.txt" `
-            -RedirectStandardOutput "$env:TEMP/mcp-out.txt" `
-            -RedirectStandardError "$env:TEMP/mcp-err.txt"
-          Start-Sleep -Seconds 4
-          if ($p.HasExited) {
-            $err = Get-Content "$env:TEMP/mcp-err.txt" -Raw -ErrorAction SilentlyContinue
-            throw "MCP server exited immediately: $err"
+
+          # Speak the protocol rather than just checking the process survives:
+          # an empty stdin closes immediately and exits 0, so liveness alone
+          # proves nothing. A real initialize handshake proves the server
+          # loaded, wired its tools, and can answer.
+          $req = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":' +
+                 '{"protocolVersion":"2024-11-05","capabilities":{},' +
+                 '"clientInfo":{"name":"ci","version":"1"}}}'
+          $resp = $req | node $server 2>&1 | Out-String
+
+          if ($resp -notmatch '"serverInfo"') {
+            throw "MCP server did not complete initialize. Got: $resp"
           }
-          Stop-Process -Id $p.Id -Force
-          Write-Output 'MCP server stayed up'
+          if ($LASTEXITCODE -ne 0) { throw "node exited $LASTEXITCODE" }
+
+          $req2 = '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+          $tools = $req2 | node $server 2>&1 | Out-String
+          if ($tools -notmatch '"tools"') {
+            throw "MCP server did not list tools. Got: $tools"
+          }
+
+          Write-Output 'MCP server completed initialize and listed tools'
