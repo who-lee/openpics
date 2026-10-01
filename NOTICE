@@ -1,0 +1,68 @@
+OpenPics
+Copyright 2026 Hen (who-lee)
+
+This product includes software developed as part of OpenPics.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+
+--------------------------------------------------------------------------------
+
+ATTRIBUTION REQUIREMENT
+
+OpenPics is free to use, including for commercial purposes. Commercial use,
+private use, redistribution, and modification are all permitted under the
+Apache License, Version 2.0.
+
+In exchange, and as a condition of that permission:
+
+  Any distribution of this software, modified or unmodified, must keep this
+  NOTICE file and reproduce the copyright notice above. Anyone shipping
+  OpenPics, or a work derived from it, in a product, service, installer, or
+  distribution must visibly credit:
+
+      OpenPics by Hen (who-lee)
+
+  and must preserve the attribution in any "About", "Credits", or equivalent
+  screen of the shipped product.
+
+Apache License section 4 already requires that recipients receive a copy of
+this License and retain copyright, patent, trademark, and attribution notices.
+This NOTICE file and the credit line above are that requirement, stated
+explicitly. Removing or obscuring the attribution in a distributed work is a
+breach of the License.
+
+--------------------------------------------------------------------------------
+
+THIRD-PARTY SOFTWARE
+
+OpenPics depends on third-party packages, each licensed by its own authors.
+Their license texts are reproduced in the packages themselves and in
+node_modules after installation. Those licenses govern that third-party code,
+not this project's License.
+
+  Electron, electron-builder, electron-vite ... MIT
+  React, React DOM ......................... MIT
+  Vite, @vitejs/plugin-react ............... MIT
+  TypeScript ............................... Apache-2.0
+  Tailwind CSS, @tailwindcss/vite .......... MIT
+  motion (framer-motion) ................... MIT
+  zustand .................................. MIT
+  zod ...................................... MIT
+  clsx ..................................... MIT
+  @phosphor-icons/react .................... MIT
+  Model Context Protocol SDK ............... MIT
+  Geist and Geist Mono fonts ................ SIL Open Font License 1.1
+
+Pixel and image codecs are implemented inside this repository under
+Apache-2.0, so the application has no native image dependency and no
+copyleft obligation is inherited from one.

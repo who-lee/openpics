@@ -1,0 +1,96 @@
+{
+  "name": "openpics",
+  "version": "1.0.0",
+  "description": "A fast desktop picture browser for Windows with a built-in background remover and an MCP server, so an AI agent can search, edit, and file your photos. Fully local: no upload, no telemetry, no account.",
+  "main": "./out/main/index.js",
+  "author": "Hen <who-lee>",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/who-lee/openpics.git"
+  },
+  "bugs": {
+    "url": "https://github.com/who-lee/openpics/issues"
+  },
+  "homepage": "https://github.com/who-lee/openpics#readme",
+  "keywords": [
+    "photo",
+    "picture",
+    "viewer",
+    "browser",
+    "background-removal",
+    "wallpaper",
+    "electron",
+    "mcp",
+    "windows"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "private": false,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "start": "electron-vite preview",
+    "build": "npm run typecheck && electron-vite build",
+    "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tsconfig.mcp.json --noEmit",
+    "build:mcp": "tsc -p tsconfig.mcp.json",
+    "mcp": "npm run build:mcp && node dist-mcp/mcp/server.js",
+    "package": "npm run build && electron-builder --win --x64",
+    "package:dir": "npm run build && electron-builder --win --x64 --dir"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "clsx": "^2.1.1",
+    "motion": "^13.4.6",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@fontsource-variable/geist": "^5.3.0",
+    "@fontsource-variable/geist-mono": "^5.3.0",
+    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^44.5.1",
+    "electron-builder": "^26.0.12",
+    "electron-vite": "^5.0.0",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^5.9.0",
+    "vite": "^7.3.6",
+    "zod": "^4.6.5"
+  },
+  "build": {
+    "appId": "dev.openpics.app",
+    "productName": "OpenPics",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName}-${version}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  },
+  "allowScripts": {
+    "esbuild@0.25.12": true,
+    "esbuild@0.28.2": true,
+    "electron@44.5.1": true
+  }
+}

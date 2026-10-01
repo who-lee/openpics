@@ -1,0 +1,194 @@
+@import '@fontsource-variable/geist';
+@import '@fontsource-variable/geist-mono';
+@import 'tailwindcss';
+
+/*
+  OpenPics token layer.
+
+  Darkroom reading: the room is dark on purpose, the safelight is the only
+  coloured light, and the photographs supply every other colour on screen. That
+  is why there is exactly one accent and it is used only for selection, focus
+  and playback progress.
+
+  Radius scale is locked to three steps and never mixed:
+    3px  photo tiles
+    6px  controls and panels
+    full only the playback progress track
+
+  Both themes are defined from the start. Nothing is pure #000 or #fff.
+*/
+
+@theme {
+  --titlebar-h: 44px;
+}
+
+:root,
+[data-theme='dark'] {
+  --c-base: #0b0b0c;
+  --c-surface: #131316;
+  --c-raised: #1a1a1e;
+  --c-hover: #232328;
+  --c-line: rgba(255, 255, 255, 0.075);
+  --c-line-strong: rgba(255, 255, 255, 0.14);
+  --c-text: #ededf0;
+  --c-text-2: #9c9ca4;
+  --c-text-3: #83838c;
+  --c-accent: #e2542e;
+  --c-accent-text: #ff7d55;
+  --c-accent-soft: rgba(226, 84, 46, 0.16);
+  --c-skeleton: #1c1c21;
+  --c-scrim: rgba(6, 6, 7, 0.92);
+  --shadow-tint: 0 0 0 1px rgba(255, 255, 255, 0.04), 0 8px 24px -12px rgba(0, 0, 0, 0.9);
+  color-scheme: dark;
+}
+
+[data-theme='light'] {
+  --c-base: #fafafa;
+  --c-surface: #ffffff;
+  --c-raised: #f2f2f4;
+  --c-hover: #e9e9ed;
+  --c-line: rgba(12, 12, 14, 0.1);
+  --c-line-strong: rgba(12, 12, 14, 0.2);
+  --c-text: #16161a;
+  --c-text-2: #55555c;
+  --c-text-3: #6b6b73;
+  --c-accent: #d2431d;
+  --c-accent-text: #b83a17;
+  --c-accent-soft: rgba(210, 67, 29, 0.12);
+  --c-skeleton: #ececed;
+  --c-scrim: rgba(250, 250, 250, 0.94);
+  --shadow-tint: 0 0 0 1px rgba(12, 12, 14, 0.05), 0 8px 24px -14px rgba(12, 12, 14, 0.28);
+  color-scheme: light;
+}
+
+@theme inline {
+  --color-base: var(--c-base);
+  --color-surface: var(--c-surface);
+  --color-raised: var(--c-raised);
+  --color-hover: var(--c-hover);
+  --color-line: var(--c-line);
+  --color-line-strong: var(--c-line-strong);
+  --color-ink: var(--c-text);
+  --color-ink-2: var(--c-text-2);
+  --color-ink-3: var(--c-text-3);
+  --color-accent: var(--c-accent);
+  --color-accent-text: var(--c-accent-text);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-skeleton: var(--c-skeleton);
+
+  --radius-tile: 3px;
+  --radius-control: 6px;
+
+  --font-sans: 'Geist Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+}
+
+@layer base {
+  * {
+    border-color: var(--c-line);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--c-base);
+    color: var(--c-text);
+    font-family: var(--font-sans);
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+    /* A desktop tool should not feel like a web page. */
+    user-select: none;
+    cursor: default;
+  }
+
+  ::selection {
+    background: var(--c-accent);
+    color: #fff;
+  }
+
+  button {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--c-accent-text);
+    outline-offset: 1px;
+  }
+
+  /* Numbers are always mono, everywhere. */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+}
+
+@layer utilities {
+  .drag {
+    -webkit-app-region: drag;
+  }
+  .no-drag {
+    -webkit-app-region: no-drag;
+  }
+  /* Native caption buttons occupy the top-right; never put content there. */
+  .caption-safe {
+    padding-right: 148px;
+  }
+}
+
+/* Scrollbars are part of a native-feeling tool, not an afterthought. */
+::-webkit-scrollbar {
+  width: 11px;
+  height: 11px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-line-strong);
+  border: 3px solid var(--c-base);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-text-3);
+}
+
+/*
+ * Indeterminate progress for a whole-PC scan. A width animation alone would
+ * pop at the loop boundary, so the track and the fill are driven by one keyframe
+ * with the track's own offset cancelled out, leaving a segment that slides across
+ * and re-enters from the opposite edge.
+ */
+@keyframes opbar-sweep {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(360%);
+  }
+}
+
+.opbar-sweep {
+  animation: opbar-sweep 1.5s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
