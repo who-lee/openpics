@@ -43,6 +43,12 @@ To remove a background: press `E`, then **Remove the background**. Adjust
 tolerance if it missed too much or too little. Fix mistakes with the brush:
 **Erase** clears, **Restore** brings pixels back. Drag on the picture to paint.
 
+**Filters** give a finished picture a look: Punch, Mono, Sepia, Warm, Cool,
+Faded, Noir, Vintage and Cinematic. Each has a strength slider, the preview
+updates as you move it, and clicking the selected filter again turns it off.
+Filters run after any manual adjustments, so they apply to the picture you
+actually made.
+
 **Save a copy** writes a new PNG next to the original and leaves the source
 file alone. Nothing touches the disk until you do.
 
@@ -75,10 +81,23 @@ Python, Node and Git are optional and used by the agent tooling. They are
 detected the same way but never downloaded; the Settings panel links to each
 project if you want to install one.
 
-Copying, trimming, splitting, concatenating and extracting a frame run through
-`core/video/edit.ts` and are exposed to agents as `video_trim`, `video_split`,
-`video_concat` and `video_frame`. Every one writes a new file next to the source
-and refuses to overwrite it.
+Copying, trimming, splitting, concatenating, extracting a frame and applying a
+filter run through `core/video/edit.ts` and are exposed to agents as
+`video_trim`, `video_split`, `video_concat`, `video_frame` and `video_filter`.
+Every one writes a new file next to the source and refuses to overwrite it.
+
+The same filters as pictures apply to video, from the same catalogue in
+`shared/filters.ts`, so `noir` means the same thing either side. Pass one as
+`filter` to `video_filter`, `video_trim`, `video_split` or `video_concat`. A
+filtered clip is always re-encoded, because the picture data has changed and the
+streams cannot be copied; the resolution is kept exactly, since rounding an odd
+width or height would change the frame size.
+
+FFmpeg's filters are matched to the picture maths rather than assumed to agree.
+Tone work is one `lutrgb` pass and saturation uses `hue`, because this FFmpeg
+build has no `eq` filter. `tests/video.test.mjs` renders every preset through
+the shipped binary, so a filter that is missing from this build fails there
+instead of failing for a user.
 
 ## The MCP server
 
@@ -88,10 +107,14 @@ npm run mcp
 ```
 
 Exposes `photos_find`, `photos_describe`, `edit_cutout_auto`, `edit_brush`,
-`edit_preview`, `edit_apply`, `edit_inspect`, `video_addons`, `video_probe`,
-`video_trim`, `video_split`, `video_concat`, `video_frame`, `wallpaper_get`,
-`wallpaper_set`, and a recycle bin (`bin_list`, `bin_send`, `bin_restore`,
-`bin_purge`, `bin_empty`).
+`edit_output`, `edit_preview`, `edit_apply`, `edit_inspect`, `video_addons`,
+`video_probe`, `video_trim`, `video_split`, `video_concat`, `video_frame`,
+`video_filter`, `wallpaper_get`, `wallpaper_set`, and a recycle bin
+(`bin_list`, `bin_send`, `bin_restore`, `bin_purge`, `bin_empty`).
+
+`edit_output` and the four writing video tools take a `filter`, named from the
+shared catalogue. `edit_output` holds it between calls, so null turns it off
+again; the video tools apply it per call and re-encode when one is given.
 
 The four writing video tools take structured arguments — a start time, a frame
 number, a list of paths. There is no way to pass a raw FFmpeg command line, so an
@@ -200,7 +223,8 @@ code that passes typecheck.
 Apache License 2.0. See [LICENSE](LICENSE).
 
 Commercial use is permitted. Any distribution must keep the NOTICE file and
-credit **OpenPics by Hen (who-lee)**, including in an About or Credits screen.
+credit **OpenPics by Hen (Lee Muriithi Kingori, [who-lee](https://github.com/who-lee))**,
+including in an About or Credits screen.
 
 The packaged application also ships FFmpeg, which is licensed separately under
 the LGPL — see [Which FFmpeg, and why](#which-ffmpeg-and-why) above. FFmpeg is
@@ -209,6 +233,15 @@ See [NOTICE](NOTICE) for the full terms.
 
 ## Credits
 
-- **OpenPics by Hen (who-lee)** — design and code
+- **[OpenPics by Hen (Lee Muriithi Kingori)](https://github.com/who-lee)** ([who-lee](https://github.com/who-lee)) — design and code
 - **a cute Ai bot made this project** — assistance throughout
 - [bylestramk.org](https://bylestramk.org) — support
+- [Donate on PayPal](https://www.paypal.com/ncp/payment/QDRSPAFCKTLXE)
+
+## How to use it
+
+[src/HOW-TO-USE.txt](src/HOW-TO-USE.txt) walks through the whole app in
+plain text: browsing, filtering and sorting, the hover card and right-click
+menu, the viewer, background removal, video, the Recycle Bin, every setting,
+and what to try when something looks wrong. Press `?` inside the app for the
+keyboard list.

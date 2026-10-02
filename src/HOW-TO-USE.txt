@@ -1,0 +1,261 @@
+================================================================================
+ OpenPics - How to use it
+================================================================================
+
+OpenPics is a picture browser for Windows. Nothing you open in it is uploaded
+anywhere - the app has no network code at all. Your photos are read from disk and
+they stay on your machine.
+
+This file covers the day-to-day stuff. Press "?" inside the app at any time for
+the full keyboard list.
+
+
+--------------------------------------------------------------------------------
+ 1. GETTING IN
+--------------------------------------------------------------------------------
+
+Choose a folder
+    Ctrl + O, or the "Open folder" button on the toolbar.
+
+Browse the whole computer
+    Pick "This PC" in the source control instead of "Folder". This walks every
+    drive, which takes a while the first time. The toolbar shows progress, and
+    there is a Stop button if you change your mind. The pictures already on
+    screen stay there while a new walk runs.
+
+Stop a scan
+    The Stop button on the toolbar.
+
+
+--------------------------------------------------------------------------------
+ 2. MOVING AROUND THE GRID
+--------------------------------------------------------------------------------
+
+Move the selection        Arrow keys
+Extend the selection      Shift + an arrow key
+Add or drop one picture   Ctrl + click
+Select a range            Shift + click
+Open the selected picture Enter, or double click
+Close the viewer          Escape
+Jump to the filter box    /
+Rescan the folder         Ctrl + R
+
+
+--------------------------------------------------------------------------------
+ 3. FINDING THINGS
+--------------------------------------------------------------------------------
+
+The filter box
+    Type in it to narrow the grid by file name. It filters what is already
+    scanned; it does not walk the disk for you.
+
+Thumbnail size
+    The S / M / L control on the toolbar changes how many pictures fit on
+    screen. Nothing is reloaded, the grid just re-flows.
+
+Sort order
+    Sort by Name, Date, Size, or Pixels. The little arrow next to the control
+    flips ascending and descending.
+
+The grid only loads thumbnails for what you can see. Scrolling far past the end
+of a folder and back is faster than switching to "This PC" and waiting.
+
+
+--------------------------------------------------------------------------------
+ 4. HOVERING AND RIGHT-CLICKING
+--------------------------------------------------------------------------------
+
+Hover over a picture
+    After a brief pause a card appears showing the file name, its dimensions,
+    the pixel count, the file size, when it was last changed, the folder, and -
+    for clips - how long they run. The card is a shortcut for the Details panel,
+    not a replacement for it.
+
+Right click a picture
+    The menu offers:
+
+      Open                 open with OpenPics
+      Open in default app  hand it to whatever handles that file type
+      Show in folder       reveal it in Explorer
+      Copy path            put the full path on the clipboard
+      Set as wallpaper     use it as the desktop background
+      Edit picture         open the editor on it
+      Details              the full information panel
+      Move to Recycle Bin  send it to the bin
+
+Right click several pictures
+    Select them first - Ctrl + click, or Shift + click for a range. The menu
+    then applies to the whole selection, and says so: "Copy all paths", "Move 4
+    to Recycle Bin". Deleting asks you to confirm, and only deletes what the
+    bin actually accepted. Anything that failed stays in the grid.
+
+
+--------------------------------------------------------------------------------
+ 5. THE VIEWER
+--------------------------------------------------------------------------------
+
+Play or pause          Space or S
+Next or previous       Right / Left
+Zoom                   Mouse wheel, or + and -
+Zoom at the pointer    the wheel zooms where the cursor is
+Fit to the window      0
+Fit or 1:1             double click the picture
+Pan while zoomed       drag
+Full screen            F
+Details                I
+
+When you are zoomed in, the arrow keys pan the picture instead of changing
+picture. Zoom out, or press 0, and they go back to navigating.
+
+
+--------------------------------------------------------------------------------
+ 6. REMOVING A BACKGROUND
+--------------------------------------------------------------------------------
+
+1. Open the picture.
+2. Press E. This loads the editor.
+3. Click Remove the background. It runs on your CPU, so a large picture takes
+   a moment.
+4. If it took too much or too little, move Tolerance and run it again.
+5. Fix what it got wrong with the brush:
+       Erase    hides what you paint over
+       Restore  brings it back
+   Drag on the picture to paint.
+6. Selection tidies up the cut-out edge. Picture crops, rotates, resizes and
+   tones the image.
+
+Filters
+    The same panel that removes backgrounds carries the looks. Click one and the
+    preview updates straight away. A strength slider appears next to it; move it
+    to taste. Click the selected filter again to turn it off.
+
+    The looks are Punch, Mono, Sepia, Warm, Cool, Faded, Noir, Vintage and
+    Cinematic. At 0 a filter does nothing at all, which is the same as having no
+    filter - handy for comparing before you commit.
+
+    Filters apply after any tone changes you made by hand, so they affect the
+    picture as you actually adjusted it, not before.
+
+Nothing touches your disk yet.
+
+Save a copy
+    Writes a new PNG next to the original and leaves the source file untouched.
+    The original is never overwritten.
+
+Set as wallpaper
+    This stays switched off until you have saved a copy, because otherwise the
+    desktop would be pointed at an image that only exists in memory.
+
+
+--------------------------------------------------------------------------------
+ 7. VIDEO
+--------------------------------------------------------------------------------
+
+Clips are listed next to pictures and open in the same viewer, which plays them
+with the usual controls.
+
+MP4, WebM, MOV, OGV and 3GP play in the viewer.
+
+FLV, WMV, MPEG and MPEG-TS are listed and will open, but they hand off to
+whatever your system uses for them, because the app has no decoder for those.
+
+Settings - External tools shows which tools were found, at which path, and at
+which version. Clips are measured when you open them rather than during a scan,
+because measuring every video up front would mean starting a process per clip
+before the first thumbnail could appear.
+
+Filters on clips
+    The picture looks also work on video, and they mean the same thing: Noir is
+    Noir either way. The list is shared, so a look added to pictures shows up
+    for clips too.
+
+    Filters are applied by an agent tool, not by a button on the clip itself -
+    ask for one by name, and say how strong if you do not want it at full
+    strength. A filtered clip is always re-encoded, which takes about as long as
+    the clip itself, and the result is a new file beside the original.
+
+    The frame size is kept exactly as it was. If a clip has an odd width or
+    height it is not rounded, because that would change the shape of every frame.
+
+
+--------------------------------------------------------------------------------
+ 8. THE RECYCLE BIN
+--------------------------------------------------------------------------------
+
+Deleting from the app - the right-click menu, or the bin tool an agent calls -
+moves files to the Windows Recycle Bin rather than unlinking them. A mistake is
+recoverable the usual way, from Explorer.
+
+Anything deleted is dropped from the grid straight away, including out of the
+viewer if that was the picture you were looking at.
+
+
+--------------------------------------------------------------------------------
+ 9. SETTINGS
+--------------------------------------------------------------------------------
+
+Open it with the gear on the toolbar. It is a full page, and the Back arrow -
+or Escape - returns to your library. Changes apply as you make them; there is
+nothing to save.
+
+  Library     default folder, what to scan, sort order, thumbnail size,
+              slideshow timing, and whether to remember the last folder
+  Appearance  dark or light
+  Editing     which picture types are decoded, and the background remover's
+              defaults
+  External    which video and scripting tools were found on this computer
+  Agent       the MCP server, and whether agents may use it at all
+  Terminal    whether the built-in shell is available
+  Credits     who made this, and how to support the project
+
+The terminal
+    Off by default. Switch it on and Ctrl + ` opens a real shell - PowerShell or
+    cmd - in a drawer along the bottom. It runs with your normal user rights, so
+    anything typed into it can change files on this computer. It keeps its
+    scrollback while hidden, and switching it off closes any shell that is
+    already open.
+
+Agent tools
+    Under Settings - Agent (MCP). Turning "Allow agent tools" off makes every
+    tool refuse, including the read-only ones. The setting is re-read on every
+    call, so a switch flipped while an agent is mid-session takes effect at once.
+
+
+--------------------------------------------------------------------------------
+ 10. IF SOMETHING LOOKS WRONG
+--------------------------------------------------------------------------------
+
+No pictures in the grid
+    The folder may be empty, or the filter may be excluding what is there.
+    Clear the filter box. If the folder genuinely has pictures in it, Ctrl + R
+    rescans.
+
+Some pictures show the extension instead of a thumbnail
+    The app cannot decode that format for preview. The full list is under
+    Settings - Editing. The file itself is untouched and still opens.
+
+A video will not play
+    Check Settings - External tools. Clip work needs FFmpeg; it ships inside the
+    app, so a healthy install should report it as found.
+
+Background removal missed too much or too little
+    Move Tolerance. If the subject has a hole in it, try Selection - Fill holes.
+
+The app feels slow on a big library
+    Use a single folder rather than This PC, and switch thumbnails to S.
+
+
+--------------------------------------------------------------------------------
+ 11. WHAT THIS APP DOES NOT DO
+--------------------------------------------------------------------------------
+
+No account. No upload. No telemetry. No network code.
+
+The editing is local and real - background removal, brush erase and restore run
+on your CPU. The terminal is the one place where something you type can change
+files, and it is off unless you turn it on.
+
+Free and open source under the Apache License 2.0.
+
+
+================================================================================

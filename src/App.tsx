@@ -1,4 +1,5 @@
 import { useCallback, useEffect } from 'react'
+import { ArrowLeft } from '@phosphor-icons/react'
 import { Titlebar } from './components/Titlebar'
 import { Toolbar } from './components/Toolbar'
 import { Grid } from './components/Grid'
@@ -115,6 +116,14 @@ export default function App() {
 
       if (useLibrary.getState().openIndex !== null) return
 
+      // Settings is a page now, not a dialog over the grid, so nothing here is
+      // modal about it. But the library it replaced is unmounted, so arrows would
+      // move a cursor nothing can see and keys like space would start a slideshow
+      // over a selection the user cannot see. While it is up, only the modifier
+      // shortcuts above and Back apply; everything else belongs to the page.
+      // Escape is handled by the listener below, not here.
+      if (useLibrary.getState().showSettings) return
+
       switch (event.key) {
         case 'ArrowRight':
           event.preventDefault()
@@ -188,15 +197,19 @@ export default function App() {
     setQuery
   ])
 
-  // The settings sheet has to render above the viewer, so it lives here rather
-  // than inside a sibling. Escape closes it, and only it, while it is up.
+  // Escape leaves Settings. It is handled here rather than only in the page's own
+  // header so that the habit of Escape-means-back carries over from the dialog
+  // this replaced, and the grid handler above stops at the settings branch rather
+  // than also clearing the filter behind it.
   useEffect(() => {
     if (!showSettings) return
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onDismissSettings()
-      }
+      if (event.key !== 'Escape') return
+      // Inside a field, Escape has to mean "stop editing", not "leave the page".
+      const target = event.target as HTMLElement | null
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return
+      event.preventDefault()
+      onDismissSettings()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -205,28 +218,37 @@ export default function App() {
   return (
     <div className="flex h-full flex-col bg-base">
       <Titlebar />
-      <Toolbar />
-      <Grid />
-      <TerminalPanel />
-      <StatusBar />
-      <Viewer />
-      <ShortcutsOverlay />
       {showSettings ? (
-        <div
-          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/55 p-8"
-          onClick={onDismissSettings}
-        >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-label="Settings"
-            onClick={(event) => event.stopPropagation()}
-            className="w-[520px] max-w-full rounded-[10px] border border-line-strong bg-base shadow-[0_18px_50px_rgba(0,0,0,0.55)]"
-          >
-            <SettingsPanel onClose={onDismissSettings} />
+        // Settings replaces the library rather than covering it. Keeping the grid
+        // mounted underneath would leave it scrolling and selectable through a
+        // "modal" that no longer looks like one, and the panel is tall enough that
+        // a floating card either clipped its own content or covered the whole window.
+        <>
+          <header className="flex shrink-0 items-center gap-2 border-b border-line px-3 py-2">
+            <button
+              type="button"
+              onClick={onDismissSettings}
+              className="flex items-center gap-1.5 rounded-[6px] px-2 py-1 text-[12px] text-ink-2 transition-colors duration-150 hover:bg-tint hover:text-ink"
+            >
+              <ArrowLeft size={14} weight="bold" aria-hidden />
+              Library
+            </button>
+            <h1 className="text-[13px] font-semibold text-ink">Settings</h1>
+          </header>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <SettingsPanel />
           </div>
-        </div>
-      ) : null}
+        </>
+      ) : (
+        <>
+          <Toolbar />
+          <Grid />
+          <TerminalPanel />
+          <StatusBar />
+          <Viewer />
+        </>
+      )}
+      <ShortcutsOverlay />
     </div>
   )
 }

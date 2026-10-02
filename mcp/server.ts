@@ -43,7 +43,9 @@ import type { KeepSide, Resize } from '../core/edit/session'
 import { selectRegion } from '../core/edit/wand'
 import { encodePng } from '../core/image/png'
 import { addonStatuses, refreshAddonStatuses } from '../core/addons/detect'
-import { concatVideos, extractFrame, splitVideo, trimVideo } from '../core/video/edit'
+import { applyVideoFilter, concatVideos, extractFrame, splitVideo, trimVideo } from '../core/video/edit'
+import { FILTER_IDS } from '../shared/filters'
+import { AUDIO_CODECS, VIDEO_CODECS } from '../shared/video'
 import { formatDuration, probeVideo } from '../core/video/probe'
 
 /**
@@ -233,6 +235,33 @@ const edits = new EditStore()
 const editId = z
   .string()
   .describe('Opaque id from edit_cutout_auto or edit_inspect. It is not a path and must be passed back exactly as given.')
+
+/**
+ * The creative filters, shared by every tool that can apply one.
+ *
+ * Built from the catalogue in `shared/filters.ts` rather than a hand-written enum, so
+ * the tool description and the actual list cannot drift apart: adding a preset there
+ * adds it here.
+ */
+const filterSettings = z.object({
+  id: z.enum(FILTER_IDS as [string, ...string[]]).describe(`Which look to apply: ${FILTER_IDS.join(', ')}.`),
+  amount: z
+    .number()
+    .int()
+    .min(0)
+    .max(100)
+    .optional()
+    .describe('Strength, 0-100. Default 100, the preset as designed. 0 is the same as no filter at all.')
+})
+
+/** For the tools that render in one call: no filter simply means the field is absent. */
+const filterArg = filterSettings.optional().describe('A creative look to apply. Omit for no filter.')
+
+/** For the tools that hold settings between calls, where null is how a setting is cleared. */
+const filterSettingArg = filterSettings
+  .nullable()
+  .optional()
+  .describe('A creative look. Omit to leave it as it is, null to turn off a filter already set.')
 
 const tolerance = z
   .number()
@@ -698,7 +727,8 @@ server.registerTool(
         .string()
         .nullable()
         .optional()
-        .describe('6-digit hex colour like "#ffffff" to lay the cutout on instead of leaving it transparent. Null restores transparency.')
+        .describe('6-digit hex colour like "#ffffff" to lay the cutout on instead of leaving it transparent. Null restores transparency.'),
+      filter: filterSettingArg
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true }
   },
@@ -759,6 +789,14 @@ server.registerTool(
         ...(args.opacity !== undefined ? { opacity: args.opacity } : {})
       }
       next.adjust = Object.keys(adjust).length > 0 ? adjust : undefined
+
+      if (args.filter !== undefined) {
+        // null clears it; a filter set to amount 0 is stored as-is rather than
+        // pruned here, because resolveFilter already treats it as no filter and
+        // collapsing it here would make the reported output settings disagree with
+        // what was asked for.
+        next.filter = args.filter ?? undefined
+      }
 
       handle.session.output = Object.keys(next).length > 0 ? next : undefined
 
@@ -1302,7 +1340,8 @@ server.registerTool(
       accurate: z
         .boolean()
         .optional()
-        .describe('Re-encode so the cut lands exactly where asked. Much slower. Default false.')
+        .describe('Re-encode so the cut lands exactly where asked. Much slower. Default false.'),
+      filter: filterArg
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
@@ -1312,6 +1351,7 @@ server.registerTool(
       return ok(
         `Wrote ${out.path} - ${sayDuration(out.durationSeconds)}, ${(out.bytes / 1024 / 1024).toFixed(1)} MB. ` +
           `Streams were ${out.copied ? 'copied, so the cut is on the nearest keyframe' : 're-encoded, so the cut is frame-exact'}. ` +
+          `${out.filter ? `Applied ${out.filter}. ` : ''}` +
           `The source is unchanged.`
       )
     })
@@ -1331,7 +1371,8 @@ server.registerTool(
         .describe('Times to cut at, in seconds. Two cuts produce three pieces.'),
       outputDir: absPath.optional().describe('Where to put the pieces. Default the source\'s folder.'),
       prefix: z.string().optional().describe('Filename stem for the pieces. Default the source name plus "-part".'),
-      accurate: z.boolean().optional().describe('Re-encode instead of copying. Default false.')
+      accurate: z.boolean().optional().describe('Re-encode instead of copying. Default false.'),
+      filter: filterArg
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
@@ -1352,7 +1393,8 @@ server.registerTool(
     inputSchema: {
       paths: z.array(absPath).min(2).describe('The clips to join, in order. Two or more.'),
       output: absPath.optional().describe('Where to write the result. Default a new file beside the first input.'),
-      reencode: z.boolean().optional().describe('Re-encode instead of copying. Default false.')
+      reencode: z.boolean().optional().describe('Re-encode instead of copying. Default false.'),
+      filter: filterArg
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
   },
@@ -1362,7 +1404,36 @@ server.registerTool(
       return ok(
         `Joined ${args.paths.length} clips into ${out.path} - ${sayDuration(out.durationSeconds)}, ` +
           `${(out.bytes / 1024 / 1024).toFixed(1)} MB, streams ${out.copied ? 'copied' : 're-encoded'}. ` +
+          `${out.filter ? `Applied ${out.filter}. ` : ''}` +
           `Every source is unchanged.`
+      )
+    })
+)
+
+server.registerTool(
+  'video_filter',
+  {
+    title: 'Apply a look to a video',
+    description:
+      'Applies one of the creative looks to a clip and writes a NEW file. The original is never modified. Every look re-encodes, because a filter changes the picture data and the streams cannot simply be copied; expect this to take about as long as the clip. The source resolution is kept exactly - an odd width or height is not rounded away, because rounding would change the frame size.',
+    inputSchema: {
+      path: absPath.describe('The clip to filter. It is not modified.'),
+      filter: filterSettings.describe('The look to apply. Required, because this tool exists to apply one.'),
+      output: absPath.optional().describe('Where to write the result. Default a new file beside the source.'),
+      videoCodec: z.enum(VIDEO_CODECS).optional().describe(`Video codec for the result. Default h264. One of: ${VIDEO_CODECS.join(', ')}.`),
+      audioCodec: z
+        .enum(AUDIO_CODECS)
+        .optional()
+        .describe(`Audio codec for the result. Default aac. One of: ${AUDIO_CODECS.join(', ')}.`)
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+  },
+  (args) =>
+    guard(async () => {
+      const out = await applyVideoFilter(args)
+      return ok(
+        `Wrote ${out.path} - ${sayDuration(out.durationSeconds)}, ${(out.bytes / 1024 / 1024).toFixed(1)} MB, ` +
+          `streams ${out.copied ? 'copied' : 're-encoded'}. Applied ${out.filter}. The source is unchanged.`
       )
     })
 )

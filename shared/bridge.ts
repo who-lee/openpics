@@ -1,4 +1,5 @@
 import type {
+  BinResult,
   DriveInfo,
   ScanProgress,
   ScanResult,
@@ -158,6 +159,15 @@ export interface OpenPicsBridge {
     open(path: string): Promise<void>
     /** Opens a URL in the user's own browser. The only way out of the sandbox. */
     openUrl(url: string): Promise<void>
+    /**
+     * Moves files to the Recycle Bin, which is recoverable, rather than
+     * unlinking them.
+     *
+     * Reports one result per path instead of rejecting, because a multi-file
+     * delete is expected to be partly successful and the caller decides what the
+     * user is told about the ones that were not.
+     */
+    sendToBin(paths: string[]): Promise<BinResult[]>
     /**
      * Adds or removes the context-menu and Open With entries under HKCU.
      * Resolves to the resulting state.

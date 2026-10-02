@@ -1,6 +1,14 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, copyFileSync, unlinkSync, renameSync } from 'node:fs'
 import { basename, dirname, join, resolve, sep } from 'node:path'
+import type { BinResult } from '../shared/types'
 import { psJson, psStringArray } from './powershell'
+
+/**
+ * Re-exported so the MCP server keeps importing the delete result from here,
+ * where it has always lived, while the shape itself sits in `shared` next to the
+ * other types the renderer is allowed to see.
+ */
+export type { BinResult }
 
 /** One deleted item, as recorded by the Recycle Bin. */
 export interface BinEntry {
@@ -22,13 +30,6 @@ export interface BinEntry {
   ext: string
   /** True while the `$R` payload is still on disk. */
   payloadPresent: boolean
-}
-
-export interface BinResult {
-  path: string
-  ok: boolean
-  /** Why the item was not deleted. Absent on success. */
-  error?: string
 }
 
 /**

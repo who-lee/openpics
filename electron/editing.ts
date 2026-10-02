@@ -14,6 +14,7 @@ import type {
   RefineOperation,
   SelectionCommand
 } from '../shared/edit'
+import { NO_FILTER } from '../shared/filters'
 import { encodePng } from '../core/image/png'
 import { EditError } from '../core/edit/session'
 import {
@@ -453,6 +454,14 @@ export function handleOutput(edit: string, settings: OutputSettings | null) {
     if (next.resize) {
       const resize = prune(next.resize)
       next.resize = Object.keys(resize).length > 0 ? resize : undefined
+    }
+    // A filter left as `{ id: 'none' }` is not an edit, and counting it as one
+    // would make a session that has had every setting turned off look changed and
+    // offer to save a copy identical to the source. Normalising it away here means
+    // the panel can be relaxed about what it sends.
+    if (next.filter) {
+      const filter = prune({ ...next.filter, amount: next.filter.amount === 100 ? undefined : next.filter.amount })
+      next.filter = filter.id === NO_FILTER ? undefined : filter
     }
     handle.session.output = prune(next) as OutputSettings
     if (Object.keys(handle.session.output).length === 0) handle.session.output = undefined

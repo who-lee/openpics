@@ -10,6 +10,9 @@ interface ThumbProps {
   selected: boolean
   onOpen: (index: number) => void
   onSelect: (index: number, mode: 'replace' | 'toggle' | 'range') => void
+  /** Reports the pointer arriving and leaving, with the tile's viewport box. */
+  onHover: (index: number, rect: DOMRect | null) => void
+  onContext: (index: number, x: number, y: number) => void
 }
 
 /**
@@ -36,7 +39,7 @@ function isDecodable(photo: Photo): boolean {
  */
 const PLAYABLE = new Set(['mp4', 'm4v', 'mov', 'webm', 'ogv', '3gp'])
 
-function ThumbImpl({ photo, width, height, index, selected, onOpen, onSelect }: ThumbProps) {
+function ThumbImpl({ photo, width, height, index, selected, onOpen, onSelect, onHover, onContext }: ThumbProps) {
   const [state, setState] = useState<'loading' | 'ready' | 'failed'>('loading')
   const imgRef = useRef<HTMLImageElement>(null)
 
@@ -56,13 +59,27 @@ function ThumbImpl({ photo, width, height, index, selected, onOpen, onSelect }: 
     <button
       type="button"
       data-index={index}
-      title={`${photo.name}${photo.relDir ? ` in ${photo.relDir}` : ''}`}
       aria-label={photo.name}
       aria-pressed={selected}
       onClick={(event) => {
         onSelect(index, event.ctrlKey || event.metaKey ? 'toggle' : event.shiftKey ? 'range' : 'replace')
       }}
       onDoubleClick={() => onOpen(index)}
+      onContextMenu={(event) => {
+        // The native menu is what Electron would otherwise put here, and it is
+        // about the file rather than about what this app can do with it.
+        event.preventDefault()
+        onContext(index, event.clientX, event.clientY)
+      }}
+      onPointerEnter={(event) => {
+        if (event.pointerType !== 'mouse') return
+        onHover(index, event.currentTarget.getBoundingClientRect())
+      }}
+      onPointerLeave={() => onHover(index, null)}
+      // Dragging out of a tile to drop a file on it must not read as the pointer
+      // simply resting somewhere else, or the card pops up over whatever the
+      // pointer passed on the way out.
+      onDragLeave={() => onHover(index, null)}
       style={{ width, height }}
       className={[
         'group relative shrink-0 overflow-hidden rounded-[3px] bg-skeleton',

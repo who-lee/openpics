@@ -95,6 +95,7 @@ const bridge: OpenPicsBridge = {
     reveal: (path) => ipcRenderer.invoke('shell:reveal', path),
     open: (path) => ipcRenderer.invoke('shell:open', path),
     openUrl: (url) => ipcRenderer.invoke('shell:open-url', url),
+    sendToBin: (paths) => ipcRenderer.invoke('shell:bin', paths),
     setFileAssociations: (enabled) => ipcRenderer.invoke('shell:associations', enabled),
     fileAssociations: () => ipcRenderer.invoke('shell:associations-status')
   },

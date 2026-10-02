@@ -38,6 +38,7 @@ const PROBE_JS = join(BUILD, 'core', 'video', 'probe.js')
 const EDIT_JS = join(BUILD, 'core', 'video', 'edit.js')
 const DETECT_JS = join(BUILD, 'core', 'addons', 'detect.js')
 const SHARED_JS = join(BUILD, 'shared', 'video.js')
+const FILTERS_JS = join(BUILD, 'shared', 'filters.js')
 
 if (!existsSync(PROBE_JS)) {
   console.error(`video modules are not built: ${PROBE_JS}\nrun "npm run build:mcp" first, or use "npm test".`)
@@ -73,6 +74,7 @@ const probe = await import(pathToFileURL(PROBE_JS).href)
 const edit = await import(pathToFileURL(EDIT_JS).href)
 const detect = await import(pathToFileURL(DETECT_JS).href)
 const shared = await import(pathToFileURL(SHARED_JS).href)
+const filters = await import(pathToFileURL(FILTERS_JS).href)
 
 const FIX = join(process.env.TEMP ?? '.', `openpics-video-verify-${randomUUID().slice(0, 8)}`)
 mkdirSync(FIX, { recursive: true })
@@ -706,6 +708,70 @@ check('a larger clip asks for more bits per second', Number(large) > Number(smal
           check('and a size past the clamp cannot exceed it', Number(edit.videoBitrateFor({ width: 7680, height: 4320, frameRate: 60 })) === 20e6)
     check('an unmeasured clip still gets a working number', Number(edit.videoBitrateFor({ width: null, height: null, frameRate: null })) > 0)
     check('a nonsense frame rate cannot produce an absurd bitrate', Number(edit.videoBitrateFor({ width: 3840, height: 2160, frameRate: 900 })) <= 20e6)
+  }
+
+  section('filter chains this build can actually run')
+
+  // A chain that merely typechecks is worthless. The shipped build has no `eq`
+  // filter, and every preset written against `eq` typechecked perfectly while
+  // failing at runtime with "No such filter: 'eq'". Nothing but driving the real
+  // filtergraph would have caught that, so that is what happens here.
+  //
+  // Output goes to `-f null` rather than to an encoder on purpose: the build is
+  // LGPL and carries no libx264, so encoding would fail for reasons that have
+  // nothing to do with the filters under test.
+  const renderChain = (chain) => {
+    try {
+      execFileSync(ffmpegStatus.path, ['-hide_banner', '-loglevel', 'error', '-i', SAMPLE, '-vf', chain, '-an', '-f', 'null', '-'])
+      return null
+    } catch (err) {
+      const text = String(err.stderr ?? '')
+      return (text.split(/\r?\n/).find((l) => /rror/.test(l)) ?? 'render failed').trim()
+    }
+  }
+
+  for (const preset of filters.FILTERS) {
+    if (preset.id === 'none') continue
+    const chain = edit.videoFilterChain(filters.resolveFilter({ id: preset.id, amount: 100 }))
+    const err = renderChain(chain)
+    check(`${preset.id} renders on this build`, err === null && chain.length > 0, err ?? 'produced an empty chain')
+  }
+
+  {
+    // Amount is caller-supplied, and a different amount can build a different chain,
+    // so the boundaries are swept rather than trusting the one value the UI sends.
+    let worst = null
+    for (const amount of [0, 1, 25, 50, 75, 100, 150, 200, -20, Number.NaN]) {
+      let chain
+      try {
+        chain = edit.videoFilterChain(filters.resolveFilter({ id: 'cinematic', amount }))
+      } catch (err) {
+        worst = `amount ${amount}: ${err.message}`
+        break
+      }
+      // An empty chain is the right answer at amount 0, and ffmpeg rejects a bare
+      // -vf '' , so it is not something to render.
+      if (chain === '') continue
+      const err = renderChain(chain)
+      if (err) {
+        worst = `amount ${amount}: ${err}`
+        break
+      }
+    }
+    check('every amount from 0 to 200, and past it, renders', worst === null, worst ?? '')
+  }
+
+  {
+    // Scale and filter have to share one -vf: ffmpeg keeps only the last -vf, so a
+    // separate one would silently drop the filter (or the scale) rather than error.
+    const chain = `scale=trunc(320/2)*2:trunc(240/2)*2,${edit.videoFilterChain(filters.resolveFilter({ id: 'noir' }))}`
+    const err = renderChain(chain)
+    check('scale and filter survive in one chain', err === null, err ?? '')
+  }
+
+  {
+    const empty = edit.videoFilterChain({})
+    check('no adjustments means no chain at all', empty === '', JSON.stringify(empty))
   }
 }
 

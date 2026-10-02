@@ -6,6 +6,7 @@ import {
   AUDIO_CODECS,
   VIDEO_CODECS,
   type ConcatRequest,
+  type FilterRequest,
   type FrameRequest,
   type SplitRequest,
   type TrimRequest,
@@ -13,6 +14,16 @@ import {
   type VideoInfo,
   type VideoOutput
 } from '../../shared/video'
+import {
+  MAX_FADE_LIFT,
+  MAX_TEMPERATURE_GAIN,
+  MAX_TEMPERATURE_GREEN_GAIN,
+  describeFilter,
+  resolveFilter,
+  sepiaMatrix,
+  type FilterAdjustments,
+  type FilterSettings
+} from '../../shared/filters'
 import { defaultVideoOutputPath, formatDuration, isVideoName, probeVideo, toTimestamp, VideoError } from './probe'
 
 /**
@@ -183,12 +194,205 @@ function requireReadable(path: string): void {
   if (!isVideoName(path)) throw new VideoError(`${path} does not look like a video file`)
 }
 
+/**
+ * Formats a number for an ffmpeg argument.
+ *
+ * Rounded to four places and trimmed of trailing zeros. ffmpeg accepts either form,
+ * but `0.30000000000000004` on a command line is noise, and the number behind it
+ * came from a slider rather than from anywhere that needs that precision. The
+ * trimming also keeps the strings stable, which is what lets a test assert on one.
+ */
+function ffmpegNum(value: number): string {
+  const rounded = Math.round(value * 10000) / 10000
+  return String(Object.is(rounded, -0) ? 0 : rounded)
+}
+
+/**
+ * What `vignette=angle=X` actually does, measured rather than assumed.
+ *
+ * Rows are `[angle in radians, brightness left at a corner]`, read off a flat
+ * mid-grey frame with the bundled build. The relationship between the two is the
+ * reason this table exists: `angle` is a lens angle, not a strength, so it is not
+ * linear in the result and `angle/PI` is not "how dark". A *larger* angle darkens
+ * *more*, and the curve is steepest in the middle, so treating the angle as a
+ * linear 0-to-1 strength produces a vignette that is invisible at the settings
+ * people reach for first and black at the settings they reach for last.
+ *
+ * Matching on corner brightness rather than on angle is what makes this agree with
+ * `core/edit/filters.ts`: the picture side darkens a corner by exactly the
+ * vignette amount, so a clip with `noir` should end up with the same corner
+ * brightness as a picture with `noir`.
+ */
+const VIGNETTE_MEASUREMENTS: readonly (readonly [number, number])[] = [
+  [0.157080, 0.953], // PI/20
+  [0.196350, 0.922], // PI/16
+  [0.261799, 0.867], // PI/12
+  [0.314159, 0.812], // PI/10
+  [0.392699, 0.727], // PI/8
+  [0.523599, 0.562], // PI/6
+  [0.628319, 0.430] // PI/5
+]
+
+/**
+ * The angle that leaves a corner at `cornerFactor` of its original brightness.
+ *
+ * Interpolated linearly between the bracketing measurements. A corner darker than
+ * the table's darkest row clamps to that row rather than extrapolating: the
+ * mapping is measured, not extrapolated from a theory, so anything past the
+ * strongest measured setting would be a guess dressed up as a number.
+ */
+function vignetteAngleFor(cornerFactor: number): number {
+  const [weakestAngle, lightestCorner] = VIGNETTE_MEASUREMENTS[0]!
+  if (cornerFactor >= lightestCorner) return weakestAngle
+  const strongest = VIGNETTE_MEASUREMENTS[VIGNETTE_MEASUREMENTS.length - 1]!
+  if (cornerFactor <= strongest[1]) return strongest[0]
+  for (let i = 0; i < VIGNETTE_MEASUREMENTS.length - 1; i++) {
+    const [angleA, cornerA] = VIGNETTE_MEASUREMENTS[i]!
+    const [angleB, cornerB] = VIGNETTE_MEASUREMENTS[i + 1]!
+    if (cornerFactor <= cornerA && cornerFactor >= cornerB) {
+      const t = (cornerA - cornerFactor) / (cornerA - cornerB)
+      return angleA + t * (angleB - angleA)
+    }
+  }
+  return strongest[0]
+}
+
+/**
+ * Warms or cools by scaling the red and blue planes apart and green slightly with
+ * them.
+ *
+ * `colorbalance` rather than a channel mixer, because it lifts only the shadows
+ * and highlights of one plane and leaves the midtones where they were. A red gain
+ * applied at every brightness is what makes most "warmer" video look like it was
+ * shot through an orange filter, and the gain here is small enough that the
+ * difference stays a cast rather than becoming a tint.
+ */
+function temperatureFilter(amount: number): string {
+  const t = amount / 100
+  const r = ffmpegNum(t * MAX_TEMPERATURE_GAIN)
+  const g = ffmpegNum(t * MAX_TEMPERATURE_GREEN_GAIN)
+  const b = ffmpegNum(-t * MAX_TEMPERATURE_GAIN)
+  return `colorbalance=rs=${r}:rm=${r}:rh=${r}:gs=${g}:gm=${g}:gh=${g}:bs=${b}:bm=${b}:bh=${b}`
+}
+
+/**
+ * The sepia tone-map, as a nine-coefficient channel mix.
+ *
+ * The coefficients come from `sepiaMatrix`, so this is the same blend the picture
+ * side computes rather than a second copy of the matrix in ffmpeg's argument
+ * syntax. `colorchannelmixer` is the filter that can express it: a 3x3 matrix over
+ * RGB, which is exactly what the nine numbers are.
+ */
+function sepiaFilter(amount: number): string {
+  const c = sepiaMatrix(amount)
+  return (
+    'colorchannelmixer=' +
+    `rr=${ffmpegNum(c[0]!)}:rg=${ffmpegNum(c[1]!)}:rb=${ffmpegNum(c[2]!)}:` +
+    `gr=${ffmpegNum(c[3]!)}:gg=${ffmpegNum(c[4]!)}:gb=${ffmpegNum(c[5]!)}:` +
+    `br=${ffmpegNum(c[6]!)}:bg=${ffmpegNum(c[7]!)}:bb=${ffmpegNum(c[8]!)}`
+  )
+}
+
+/**
+ * Lifts the blacks towards flat grey.
+ *
+ * `colorlevels` with the three input floors raised, rather than a brightness
+ * offset: brightness lifts the *whole* picture, which greys out the highlights
+ * along with the shadows, while a floor only affects what was already dark. That
+ * is what makes a fade read as a faded photograph instead of a washed-out one.
+ */
+function fadeFilter(amount: number): string {
+  const lift = ((amount < 0 ? 0 : amount > 100 ? 100 : amount) / 100) * MAX_FADE_LIFT / 255
+  const l = ffmpegNum(lift)
+  return `colorlevels=rimin=${l}:gimin=${l}:bimin=${l}`
+}
+
+/**
+ * The whole look, as one `-vf` argument.
+ *
+ * The tone knobs are grouped into one `lutrgb` pass. Brightness, contrast and gamma
+ * are all per-channel transfers, so one expression can apply all three in a single
+ * walk of each pixel; emitting them as separate filters would be three walks to do
+ * one pass's work, on every frame of every clip.
+ *
+ * Order inside that expression mirrors `core/edit/filters.ts` exactly: gamma, then
+ * brightness, then contrast. Contrast pivots on mid-grey, so a brightness applied
+ * after it would be scaled by the contrast as well - visible, and wrong.
+ *
+ * Only the *final* value is clipped. The picture side stores into a clamped array
+ * once at the end too, and its brightness deliberately runs unclamped so that
+ * contrast sees the raised value; clipping brightness first would flatten
+ * "bright + high contrast" into a grey card.
+ */
+export function videoFilterChain(adjustments: FilterAdjustments): string {
+  const parts: string[] = []
+
+  const gamma = adjustments.gamma
+  const hasGamma = gamma !== undefined && gamma !== 1
+  const brightness = adjustments.brightness ?? 0
+  const contrast = adjustments.contrast ?? 0
+  if (hasGamma || brightness !== 0 || contrast !== 0) {
+    let tone = hasGamma ? `255*pow(val/255,${ffmpegNum(Math.max(0.2, Math.min(3, gamma!)))})` : 'val'
+    if (brightness !== 0) tone = `(${tone}+${ffmpegNum(brightness * 2.55)})`
+    if (contrast !== 0) {
+      // The same multiplier `adjustRaster` derives, including its asymmetry: a
+      // positive contrast divides rather than multiplying, because -100 on that
+      // basis has to mean *no* contrast rather than negative contrast.
+      const c = Math.max(-100, Math.min(100, contrast)) / 100
+      const k = c >= 0 ? 1 / Math.max(1e-6, 1 - c) : 1 + c
+      tone = `(${tone}-127.5)*${ffmpegNum(k)}+127.5`
+    }
+    const clipped = `clip(${tone},0,255)`
+    parts.push(`lutrgb=r='${clipped}':g='${clipped}':b='${clipped}'`)
+  }
+
+  // Saturation is a cross-channel operation - it scales chroma about luma - so no
+  // per-component lookup can express it. `hue` is the filter that can, and its
+  // `s` scales about the same Rec. 601 luma the picture side uses.
+  const saturation = adjustments.saturation ?? 0
+  if (saturation !== 0) {
+    parts.push(`hue=s=${ffmpegNum(Math.max(0, 1 + saturation / 100))}`)
+  }
+
+  if (adjustments.temperature !== undefined && adjustments.temperature !== 0) {
+    parts.push(temperatureFilter(adjustments.temperature))
+  }
+  if (adjustments.sepia !== undefined && adjustments.sepia !== 0) {
+    parts.push(sepiaFilter(adjustments.sepia))
+  }
+  if (adjustments.fade !== undefined && adjustments.fade !== 0) {
+    parts.push(fadeFilter(adjustments.fade))
+  }
+  if (adjustments.vignette !== undefined && adjustments.vignette !== 0) {
+    const v = Math.max(0, Math.min(100, adjustments.vignette)) / 100
+    parts.push(`vignette=angle=${ffmpegNum(vignetteAngleFor(1 - v))}`)
+  }
+
+  return parts.join(',')
+}
+
+/**
+ * Turns a requested filter into the chain to pass and a description to report.
+ *
+ * Returns an empty chain for `none` or for an amount that rounds to nothing, which
+ * is the case the copy path depends on: `none` must not cost a re-encode, or every
+ * trim that happens to mention a filter would quietly take a minute.
+ */
+function planFilter(
+  settings: FilterSettings | null | undefined
+): { chain: string; describe: string | undefined } {
+  const adjustments = resolveFilter(settings)
+  const chain = videoFilterChain(adjustments)
+  return chain ? { chain, describe: describeFilter(settings) } : { chain: '', describe: undefined }
+}
+
 /** Names the encoder flags only when re-encoding is actually happening. */
 function encodeArgs(
   accurate: boolean | undefined,
   videoCodec?: string,
   audioCodec?: string,
-  info?: VideoInfo
+  info?: VideoInfo,
+  chain = ''
 ): string[] {
   if (!accurate) return ['-c', 'copy']
   // Falling back to the default rather than throwing: the name is validated at the
@@ -199,24 +403,28 @@ function encodeArgs(
   const source = info ?? UNKNOWN_SIZE
   const v = codecFor(videoCodec, H264)
   const a = codecFor(audioCodec, AAC)
-  // Every encoder here is restricted to yuv420p, whose chroma planes are half
-  // height and width, so an odd dimension has nowhere to put its last row or
-  // column. ffmpeg handles this by inserting a scaling filter that silently drops
-  // the remainder, which loses a pixel the user cannot see was dropped. Doing it
-  // explicitly, and only for the odd case, keeps a 4K trim from paying for a
-  // resample it does not need and turns a hidden behaviour into a documented one.
-  const args: string[] = ['-c:v', v.encoder, ...v.rateArgs(source)]
+  // Scaling first, so the look is applied to as few pixels as possible, and the two
+  // share one `-vf`. ffmpeg keeps only the last `-vf` it is given: a second flag
+  // does not add to the first, it replaces it, so scaling and filtering separately
+  // would leave whichever came second working and the other one silently gone.
+  const vf: string[] = []
   if (source.width && source.height && (source.width % 2 || source.height % 2)) {
-    args.push('-vf', 'scale=trunc(iw/2)*2:trunc(ih/2)*2')
+    // Every encoder here is restricted to yuv420p, whose chroma planes are half
+    // height and width, so an odd dimension has nowhere to put its last row or
+    // column. ffmpeg handles this by inserting a scaling filter that silently drops
+    // the remainder, which loses a pixel the user cannot see was dropped. Doing it
+    // explicitly, and only for the odd case, keeps a 4K trim from paying for a
+    // resample it does not need and turns a hidden behaviour into a documented one.
+    vf.push('scale=trunc(iw/2)*2:trunc(ih/2)*2')
   }
-  // 192k of AAC because that is the near-universal floor for stereo speech and
-  // music alike; a re-encode that quietly cut the audio to 64k would be noticed
-  // immediately on anything with music in it.
+  if (chain) vf.push(chain)
   // 192k of AAC because that is the near-universal floor for stereo speech and
   // music alike; a re-encode that quietly cut the audio to 64k would be noticed
   // immediately on anything with music in it. `pix_fmt` is named rather than
   // left to the encoder because these encoders would otherwise negotiate it
   // themselves and pick differently per codec.
+  const args: string[] = ['-c:v', v.encoder, ...v.rateArgs(source)]
+  if (vf.length > 0) args.push('-vf', vf.join(','))
   return [...args, '-pix_fmt', 'yuv420p', '-c:a', a.encoder, '-b:a', '192k']
 }
 
@@ -276,6 +484,13 @@ export async function trimVideo(request: TrimRequest): Promise<VideoOutput> {
   )
 
   const { path: ffmpeg } = await requireAddon('ffmpeg')
+  const { chain, describe } = planFilter(request.filter)
+  // A filter needs decoded frames, so a stream copy cannot carry it. Upgrading
+  // `accurate` here rather than passing the caller's value straight through is the
+  // whole reason the flag is not simply forwarded: a copy would hand back the
+  // source's own pixels with a filter that silently did nothing, which is worse
+  // than the slower operation because it looks like it worked.
+  const accurate = Boolean(request.accurate) || chain !== ''
   // `-ss` before `-i` seeks via the container index, which is fast. `-t` goes
   // *after* the input, so it is measured from where the seek landed; putting it
   // before `-i` would measure from the original start and cut far too little.
@@ -284,14 +499,21 @@ export async function trimVideo(request: TrimRequest): Promise<VideoOutput> {
     '-ss', toTimestamp(start),
     '-i', request.path,
     '-t', toTimestamp(end - start),
-    ...encodeArgs(request.accurate, 'h264', undefined, info),
+    ...encodeArgs(accurate, 'h264', undefined, info, chain),
     // Moves the index to the front so playback starts before the file is read
     // from the end, and works for the mp4/mov output this always produces.
     '-movflags', '+faststart',
     target
   ]
   await runFfmpeg(ffmpeg, args)
-  return { path: target, bytes: statSync(target).size, copied: !request.accurate, durationSeconds: end - start }
+  const output: VideoOutput = {
+    path: target,
+    bytes: statSync(target).size,
+    copied: !accurate,
+    durationSeconds: end - start
+  }
+  if (describe) output.filter = describe
+  return output
 }
 
 /**
@@ -337,8 +559,12 @@ export async function splitVideo(request: SplitRequest): Promise<VideoOutput[]> 
   for (const target of expected) assertWritable(target, [request.path], false)
 
   const { path: ffmpeg } = await requireAddon('ffmpeg')
+  const { chain, describe } = planFilter(request.filter)
+  // As in `trimVideo`: a filter rules out a copy, because the whole point of a
+  // segment run is that it never decodes.
+  const accurate = Boolean(request.accurate) || chain !== ''
   const args = ['-hide_banner', '-loglevel', 'error', '-y', '-i', request.path]
-  if (!request.accurate) args.push('-c', 'copy')
+  if (!accurate) args.push('-c', 'copy')
   args.push(
     '-f', 'segment',
     '-segment_times', cuts.map(toTimestamp).join(','),
@@ -350,7 +576,7 @@ export async function splitVideo(request: SplitRequest): Promise<VideoOutput[]> 
     // `-00` and read as though something were missing. Set explicitly rather
     // than worked around, so the names on disk match what the caller was told.
     '-segment_start_number', '1',
-    ...encodeArgs(request.accurate, 'h264', undefined, info),
+    ...encodeArgs(accurate, 'h264', undefined, info, chain),
     resolve(dir, `${stem}-%02d.mp4`)
   )
   await runFfmpeg(ffmpeg, args)
@@ -367,7 +593,9 @@ export async function splitVideo(request: SplitRequest): Promise<VideoOutput[]> 
     } catch {
       seconds = 0
     }
-    written.push({ path: target, bytes: statSync(target).size, copied: !request.accurate, durationSeconds: seconds })
+    const piece: VideoOutput = { path: target, bytes: statSync(target).size, copied: !accurate, durationSeconds: seconds }
+    if (describe) piece.filter = describe
+    written.push(piece)
   }
   if (written.length === 0) throw new VideoError('ffmpeg produced no output files')
   return written
@@ -396,11 +624,16 @@ export async function concatVideos(request: ConcatRequest): Promise<VideoOutput>
 
   const { path: ffmpeg } = await requireAddon('ffmpeg')
 
+  const { chain, describe } = planFilter(request.filter)
+  // A filter cannot ride through a stream copy, so a join asked to be filtered
+  // re-encodes even though the caller did not ask for it - see `trimVideo`.
+  const reencode = Boolean(request.reencode) || chain !== ''
+
   // Only measured when a re-encode is actually going to happen, because that is
   // the only case where the encoder needs to know how big the picture is, and
   // probing on every join would add work to the fast path for nothing.
   let sourceInfo: VideoInfo | undefined
-  if (request.reencode) {
+  if (reencode) {
     try {
       sourceInfo = await probeVideo(paths[0] as string)
     } catch {
@@ -424,7 +657,7 @@ export async function concatVideos(request: ConcatRequest): Promise<VideoOutput>
       // file's own folder.
       '-safe', '0',
       '-i', listFile,
-      ...encodeArgs(request.reencode, 'h264', undefined, sourceInfo),
+      ...encodeArgs(reencode, 'h264', undefined, sourceInfo, chain),
       '-movflags', '+faststart',
       target
     ])
@@ -439,7 +672,9 @@ export async function concatVideos(request: ConcatRequest): Promise<VideoOutput>
   }
 
   const info = await probeVideo(target)
-  return { path: target, bytes: statSync(target).size, copied: !request.reencode, durationSeconds: info.durationSeconds }
+  const output: VideoOutput = { path: target, bytes: statSync(target).size, copied: !reencode, durationSeconds: info.durationSeconds }
+  if (describe) output.filter = describe
+  return output
 }
 
 /**
@@ -492,6 +727,54 @@ export async function extractFrame(request: FrameRequest): Promise<VideoOutput &
   await runFfmpeg(ffmpeg, args)
 
   return { path: target, bytes: statSync(target).size, copied: true, durationSeconds: 0, atSeconds: at }
+}
+
+/**
+ * Applies a look to a whole clip.
+ *
+ * Separate from the three operations above because the filter case is the one that
+ * always re-encodes. Folding it into `trimVideo` would mean every caller of this
+ * module had to know that `accurate: false` plus a filter still costs a render, and
+ * that is exactly the sort of coupling that makes an "optimised" fast path quietly
+ * return unfiltered frames. Here the cost is the operation's own definition.
+ *
+ * The audio is re-encoded alongside the picture rather than copied, which is
+ * unavoidable: `-c:a copy` alongside a re-encoded video needs the audio codec to
+ * match the container ffmpeg picks for the video, and mismatches there are a
+ * confusing failure rather than a clean one.
+ */
+export async function applyVideoFilter(request: FilterRequest): Promise<VideoOutput> {
+  requireReadable(request.path)
+  const info = await probeVideo(request.path)
+
+  const { chain, describe } = planFilter(request.filter)
+  if (!chain) throw new VideoError('no filter was given, so there is nothing to apply')
+
+  const target = assertWritable(
+    request.output ? resolve(request.output) : defaultVideoOutputPath(request.path, `-${request.filter.id}`),
+    [request.path],
+    false
+  )
+
+  const { path: ffmpeg } = await requireAddon('ffmpeg')
+  await runFfmpeg(ffmpeg, [
+    '-hide_banner', '-loglevel', 'error', '-y',
+    '-i', request.path,
+    ...encodeArgs(true, request.videoCodec, request.audioCodec, info, chain),
+    '-movflags', '+faststart',
+    target
+  ])
+
+  const written = await probeVideo(target)
+  return {
+    path: target,
+    bytes: statSync(target).size,
+    // Always false: this function has no stream-copy path at all, which is the
+    // point of it.
+    copied: false,
+    durationSeconds: written.durationSeconds,
+    filter: describe
+  }
 }
 
 /** The encoder names this build accepts, for the UI to offer. */

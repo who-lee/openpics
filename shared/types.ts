@@ -153,3 +153,18 @@ export interface WallpaperState {
   /** The fit the current background was applied with, when it can be determined. */
   fit: WallpaperFit | null
 }
+
+/**
+ * One item's outcome after a Recycle Bin delete.
+ *
+ * The delete reports per path rather than throwing, because a multi-select
+ * delete is expected to be partly successful: a file that was locked or already
+ * gone is recorded as failed while its neighbours go to the bin normally, and
+ * the caller is the one who decides what the user is told.
+ */
+export interface BinResult {
+  path: string
+  ok: boolean
+  /** Why the item was not deleted. Absent on success. */
+  error?: string
+}

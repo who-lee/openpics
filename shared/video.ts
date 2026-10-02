@@ -13,6 +13,10 @@
  * have to know that ffmpeg has a timestamp format at all.
  */
 
+// Type-only, so this file still pulls nothing in at runtime. The filter recipes
+// live in `./filters` and are resolved where ffmpeg is actually run.
+import type { FilterSettings } from './filters'
+
 /** Containers OpenPics will offer video actions for. */
 export const VIDEO_EXTS: readonly string[] = [
   'mp4',
@@ -105,6 +109,8 @@ export interface TrimRequest {
    * cut lands on the nearest preceding keyframe instead of the requested frame.
    */
   accurate?: boolean
+  /** A named look from the shared catalogue. Defaults to none. */
+  filter?: FilterSettings
 }
 
 export interface SplitRequest {
@@ -116,6 +122,8 @@ export interface SplitRequest {
   /** Filename stem for the pieces. Defaults to the source name plus '-part'. */
   prefix?: string
   accurate?: boolean
+  /** Applied to every piece. Defaults to none. */
+  filter?: FilterSettings
 }
 
 export interface ConcatRequest {
@@ -128,6 +136,21 @@ export interface ConcatRequest {
    * caller recovers.
    */
   reencode?: boolean
+  /** Applied to the joined result. Defaults to none. */
+  filter?: FilterSettings
+}
+
+/** Applies a filter to a whole clip and writes a new file. */
+export interface FilterRequest {
+  path: string
+  /** The look to apply. Required - there is nothing to do without one. */
+  filter: FilterSettings
+  /** Where to write. Defaults to a new file beside the source. */
+  output?: string
+  /** Which video codec to re-encode with. Defaults to h264. */
+  videoCodec?: VideoCodec
+  /** Which audio codec to re-encode with. Defaults to aac. */
+  audioCodec?: AudioCodec
 }
 
 export interface FrameRequest {
@@ -149,10 +172,19 @@ export interface VideoOutput {
   copied: boolean
   /** Duration of the result, when it is known without another probe. */
   durationSeconds: number
+  /**
+   * The filter that was applied, described, or absent when there was none.
+   *
+   * Reported rather than inferred from `copied`, because a filter forces a
+   * re-encode and a caller that asked for `accurate: false` still gets one. A
+   * reply that said only "copied: false" would leave a user wondering why their
+   * trim took a minute.
+   */
+  filter?: string
 }
 
 export interface VideoErrorReport {
   error: string
   /** Which operation failed, so the UI can label the message. */
-  operation: 'probe' | 'trim' | 'split' | 'concat' | 'frame'
+  operation: 'probe' | 'trim' | 'split' | 'concat' | 'frame' | 'filter'
 }

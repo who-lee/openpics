@@ -44,6 +44,7 @@ import {
 import type { TerminalCreateOptions } from '../shared/terminal'
 import { ensureFileAssociations, fileAssociationsEnabled, setFileAssociations } from './shellassoc'
 import { getWallpaper, setWallpaper } from '../core/wallpaper'
+import { sendToBin } from '../core/recyclebin'
 import { addonStatuses, refreshAddonStatuses } from '../core/addons/detect'
 import { concatVideos, extractFrame, splitVideo, trimVideo } from '../core/video/edit'
 import { probeVideo } from '../core/video/probe'
@@ -341,12 +342,14 @@ function wireIpc(): void {
     await shell.openPath(path)
   })
 
-  ipcMain.handle('shell:open-url', async (_e, url: string) => {
-    // Anything but http(s) is refused rather than handed to the OS: file:// and
-    // smb:// would let a compromised renderer open local content off-screen.
-    if (!/^https?:\/\//i.test(url)) return
-    await shell.openExternal(url)
-  })
+ipcMain.handle('shell:open-url', async (_e, url: string) => {
+      // Anything but http(s) is refused rather than handed to the OS: file:// and
+      // smb:// would let a compromised renderer open local content off-screen.
+      if (!/^https?:\/\//i.test(url)) return
+      await shell.openExternal(url)
+    })
+
+    ipcMain.handle('shell:bin', (_e, paths: string[]) => sendToBin(paths))
 
   ipcMain.handle('shell:associations', async (_e, enabled: boolean) => {
     const next = await setFileAssociations(enabled)

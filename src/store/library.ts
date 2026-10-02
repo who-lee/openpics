@@ -45,6 +45,17 @@ interface LibraryState {
   terminalOpen: boolean
   query: string
 
+  /**
+   * Counts the requests to open a picture straight into the editor.
+   *
+   * A counter rather than a boolean because asking for the same picture to be
+   * opened and edited twice has to work: a flag the viewer cleared on the way in
+   * would leave the second request with nothing left to read.
+   */
+  editRequest: number
+  /** Clears the request once the viewer has acted on it. */
+  clearEditRequest: () => void
+
   boot: () => Promise<void>
   rescan: () => Promise<void>
   pickFolder: () => Promise<void>
@@ -60,8 +71,18 @@ interface LibraryState {
   select: (index: number, mode: 'replace' | 'toggle' | 'range') => void
   moveCursor: (delta: number, extend?: boolean) => void
   open: (index: number) => void
+  /** Opens a picture and asks the viewer to start an edit session on it. */
+  openForEdit: (index: number) => void
   close: () => void
   step: (delta: number) => void
+  /**
+   * Drops pictures that are no longer on disk.
+   *
+   * Selection, the cursor and the viewer are all indices, and every one of them
+   * has to survive the removal rather than silently start pointing at whatever
+   * photo slid into the old slot.
+   */
+  forgetPaths: (paths: readonly string[]) => void
 
   /**
    * Records what a clip turned out to actually be.
@@ -214,6 +235,12 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   showSettings: false,
   terminalOpen: false,
   query: '',
+
+  editRequest: 0,
+
+  clearEditRequest() {
+    if (get().editRequest !== 0) set({ editRequest: 0 })
+  },
 
   async boot() {
     const settings = await bridge.settings.get()
@@ -405,8 +432,94 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     set({ openIndex: index, slideshowPlaying: false })
   },
 
+  openForEdit(index) {
+    const { photos } = get()
+    if (index < 0 || index >= photos.length) return
+    // A clip has no picture to edit, and the viewer's editor is built for stills.
+    if (photos[index]?.kind !== 'photo') return
+    get().open(index)
+    set({ editRequest: get().editRequest + 1 })
+  },
+
   close() {
     set({ openIndex: null, slideshowPlaying: false, showInfo: false })
+  },
+
+  forgetPaths(paths) {
+    if (paths.length === 0) return
+    const { raw, photos, query, cursor, anchor, selected, openIndex } = get()
+    // Windows compares paths without regard to case, so this has to as well. A
+    // mismatch here would leave a deleted file sitting in the grid forever.
+    const gone = new Set(paths.map((path) => path.toLowerCase()))
+    const keep = (list: Photo[]): Photo[] => list.filter((photo) => !gone.has(photo.path.toLowerCase()))
+    const nextPhotos = keep(photos)
+    const nextRaw = keep(raw)
+    if (nextPhotos.length === photos.length) return
+
+    /**
+     * Where each surviving photo ended up.
+     *
+     * Built from the photo's own path rather than by counting removals, so a
+     * path the caller did not mention cannot shift an index that matters.
+     */
+    const moved = new Map<string, number>()
+    nextPhotos.forEach((photo, index) => moved.set(photo.path, index))
+    const remap = (path: string | undefined): number =>
+      path === undefined ? -1 : (moved.get(path) ?? -1)
+
+    /**
+     * Keeps an index meaningful after the list it points into has shrunk.
+     *
+     * A surviving photo keeps pointing at itself; one that was deleted falls back
+     * to the nearest photo still standing, which is the row the user is now
+     * looking at anyway.
+     */
+    const settle = (index: number): number => {
+      if (index < 0) return -1
+      const survived = remap(photos[index]?.path)
+      if (survived >= 0) return survived
+      for (let i = index; i < photos.length; i++) {
+        const found = remap(photos[i]?.path)
+        if (found >= 0) return found
+      }
+      for (let i = index - 1; i >= 0; i--) {
+        const found = remap(photos[i]?.path)
+        if (found >= 0) return found
+      }
+      return -1
+    }
+
+    const nextSelected = new Set<number>()
+    for (const index of selected) {
+      const found = remap(photos[index]?.path)
+      if (found >= 0) nextSelected.add(found)
+    }
+
+    /**
+     * What to do with the viewer, given the file it was showing.
+     *
+     * If the open file was deleted, the viewer has to close: it would be showing
+     * bytes that are gone, and any editor session belongs to those bytes. If the
+     * open file survived, the viewer stays open but has to follow it to its new
+     * index, or deleting some *other* picture in the same row would silently swap
+     * the viewer onto a different one.
+     */
+    const viewer =
+      openIndex === null
+        ? {}
+        : remap(photos[openIndex]?.path) < 0
+          ? { openIndex: null, slideshowPlaying: false, showInfo: false }
+          : { openIndex: remap(photos[openIndex]?.path) }
+
+    set({
+      raw: nextRaw,
+      photos: nextPhotos,
+      visible: visibleIndices(nextPhotos, query),
+      cursor: settle(cursor),
+      anchor: settle(anchor),
+      selected: nextSelected,
+      ...viewer
+    })
   },
 
   step(delta) {

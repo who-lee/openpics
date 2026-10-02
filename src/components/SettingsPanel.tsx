@@ -3,7 +3,8 @@ import {
   ArrowSquareOut,
   CheckCircle,
   CircleNotch,
-  GearSix,
+  GithubLogo,
+  HandHeart,
   WarningCircle,
   XCircle
 } from '@phosphor-icons/react'
@@ -11,7 +12,7 @@ import { useEffect, useState } from 'react'
 import { bridge } from '@/lib/bridge'
 import { useLibrary } from '@/store/library'
 import type { AddonStatus } from '@shared/addons'
-import { Button, Segmented, Toggle } from './ui'
+import { Segmented, Toggle } from './ui'
 
 /**
  * Slideshow speeds, in seconds.
@@ -32,10 +33,25 @@ const SLIDESHOW_CHOICES = [
  * The context-menu switch is here rather than in the toolbar because it writes to
  * the registry: a user who does not know what it does should not be able to
  * stumble into it while reaching for the sort order.
+ *
+ * This is a page rather than a dialog. It is taller than a comfortable sheet, and
+ * cramming it into one meant the last section was only reachable by scrolling
+ * inside a floating card, with the library still visible behind it. Leaving the
+ * page takes no setting with it, so nothing has to be saved or reverted - which is
+ * why there is no Close button here either. The header's Back arrow is the only
+ * way out, and it matches what every other page in every other app does.
  */
-interface SettingsPanelProps {
-  onClose: () => void
-}
+
+/**
+ * Where the project lives, and where to send money.
+ *
+ * Named rather than inlined at the call sites so the URLs are in one place and
+ * there is no chance of the two credit rows drifting apart from the README and
+ * the package manifest.
+ */
+const AUTHOR_URL = 'https://github.com/who-lee'
+const SITE_URL = 'https://bylestramk.org'
+const DONATE_URL = 'https://www.paypal.com/ncp/payment/QDRSPAFCKTLXE'
 
 /**
  * Credit link, opened through the main process.
@@ -43,8 +59,8 @@ interface SettingsPanelProps {
  * A plain anchor with target="_blank" is dead here: the window is locked down to
  * deny popups, so the click would silently do nothing.
  */
-async function openCredit(): Promise<void> {
-  await bridge.shell.openUrl('https://bylestramk.org')
+async function openUrl(url: string): Promise<void> {
+  await bridge.shell.openUrl(url)
 }
 
 /**
@@ -102,7 +118,7 @@ function AddonRow({ addon }: { addon: AddonStatus }) {
   )
 }
 
-export function SettingsPanel({ onClose }: SettingsPanelProps) {
+export function SettingsPanel() {
   const settings = useLibrary((s) => s.settings)
   const patch = useLibrary((s) => s.patch)
   const drives = useLibrary((s) => s.drives)
@@ -253,7 +269,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
   const freeTotal = readable.reduce((sum, drive) => sum + drive.freeBytes, 0)
 
   return (
-    <div className="space-y-5 p-4">
+    <div className="mx-auto w-full max-w-[560px] space-y-6 px-6 py-6">
       <section>
         <h2 className="text-[13px] font-semibold text-ink">Windows integration</h2>
         <div className="mt-2 flex items-start justify-between gap-4">
@@ -453,9 +469,17 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
       <section>
         <h2 className="text-[13px] font-semibold text-ink">Credits</h2>
         <ul className="mt-1.5 flex flex-col gap-1 text-[12px] text-ink-2">
-          <li>
-            Lee Muriithi Kingori
-            <span className="text-ink-3"> — built this</span>
+          <li className="flex items-center gap-1.5">
+            <GithubLogo size={13} weight="fill" className="shrink-0 text-ink-3" aria-hidden="true" />
+            <button
+              type="button"
+              onClick={() => void openUrl(AUTHOR_URL)}
+              title="Open github.com/who-lee in your browser"
+              className="underline-offset-2 transition-colors duration-150 hover:text-ink hover:underline"
+            >
+              Lee Muriithi Kingori
+            </button>
+            <span className="text-ink-3">— who-lee, built this</span>
           </li>
           <li>
             a cute Ai bot made this project
@@ -464,7 +488,7 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
           <li>
             <button
               type="button"
-              onClick={() => void openCredit()}
+              onClick={() => void openUrl(SITE_URL)}
               title="Open bylestramk.org in your browser"
               className="underline-offset-2 transition-colors duration-150 hover:text-ink hover:underline"
             >
@@ -472,14 +496,34 @@ export function SettingsPanel({ onClose }: SettingsPanelProps) {
             </button>
           </li>
         </ul>
+
+        {/*
+         * Donate sits under Credits rather than in the toolbar because it is not a
+         * thing you use to browse photos. It opens the PayPal page in the browser,
+         * which is the only way a payment can be completed - and it is the same
+         * openUrl path as the credit links, so a popup-blocked window cannot make it
+         * fail silently.
+         */}
+        <button
+          type="button"
+          onClick={() => void openUrl(DONATE_URL)}
+          title="Support the project on PayPal"
+          className={[
+            'mt-3 inline-flex items-center gap-1.5 rounded-[6px] border border-line px-2.5 py-1.5',
+            'text-[12px] font-medium text-ink-2',
+            'transition-[background-color,color,border-color,transform] duration-150',
+            'hover:border-line-strong hover:bg-hover hover:text-ink active:translate-y-px'
+          ].join(' ')}
+        >
+          <HandHeart size={14} weight="bold" className="shrink-0" aria-hidden="true" />
+          Donate
+        </button>
       </section>
 
-      <footer className="flex items-center justify-between border-t border-line pt-3">
-        <span className="text-[11px] text-ink-3">OpenPics</span>
-        <Button size="sm" onClick={onClose}>
-          <GearSix size={13} weight="regular" />
-          Close
-        </Button>
+      <footer className="border-t border-line pt-3">
+        <span className="text-[11px] text-ink-3">
+          OpenPics &middot; settings apply as you change them
+        </span>
       </footer>
     </div>
   )

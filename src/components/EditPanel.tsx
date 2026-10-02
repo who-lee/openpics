@@ -8,6 +8,7 @@ import {
   SpinnerGap
 } from '@phosphor-icons/react'
 import type { WallpaperFit } from '@shared/protocol'
+import { FILTERS, NO_FILTER, findFilter } from '@shared/filters'
 import {
   RADIUS_MAX_PCT,
   RADIUS_MIN_PCT,
@@ -63,6 +64,12 @@ export function EditPanel({ editor }: EditPanelProps) {
 
   const adjust = editor.output.adjust ?? {}
   const setAdjust = (next: Partial<typeof adjust>): void => editor.setOutput({ adjust: next })
+  // The preset behind whatever is currently chosen, or null when the picture is
+  // unfiltered. Resolved through the catalogue rather than assumed to exist, so a
+  // filter id from a session written by a newer build degrades to "no filter
+  // shown" here instead of a chip that cannot be un-pressed.
+  const activeFilter = findFilter(editor.output.filter?.id ?? NO_FILTER) ?? null
+  const filterOn = activeFilter !== null && activeFilter.id !== NO_FILTER
 
   return (
     <aside className="flex w-[248px] shrink-0 flex-col gap-4 overflow-y-auto border-l border-line bg-surface px-3 py-3">
@@ -251,6 +258,55 @@ export function EditPanel({ editor }: EditPanelProps) {
               onChange={(v) => setAdjust({ saturation: v === 0 ? undefined : v })}
               disabled={working}
             />
+            {/* A named look, after the hand-tuned knobs rather than instead of them.
+                They compose the way they read: the sliders set the picture up and the
+                filter finishes it, so a user who has dialled in a contrast they likes
+                can still put Warm on top of it. */}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[12px] text-ink-2">Filter</span>
+              <div className="flex flex-wrap gap-1.5">
+                {FILTERS.map((preset) => {
+                  const chosen = (editor.output.filter?.id ?? NO_FILTER) === preset.id
+                  return (
+                    <Button
+                      key={preset.id}
+                      size="sm"
+                      variant={chosen ? 'accent' : 'ghost'}
+                      aria-pressed={chosen}
+                      disabled={working || !open}
+                      title={preset.hint}
+                      onClick={() =>
+                        editor.setOutput({
+                          // Clicking the chosen filter again clears it, because a chip
+                          // that cannot be switched off leaves a user who wants the
+                          // original hunting for the Reset button, which also throws
+                          // away their crop and their contrast.
+                          filter: chosen ? undefined : preset.id === NO_FILTER ? undefined : { id: preset.id }
+                        })
+                      }
+                    >
+                      {preset.label}
+                    </Button>
+                  )
+                })}
+              </div>
+              {filterOn && activeFilter ? <p className="text-[11px] leading-snug text-ink-3">{activeFilter.hint}</p> : null}
+            </div>
+            {filterOn && activeFilter && (editor.output.filter?.amount ?? 100) < 100 ? (
+              <Slider
+                label="Amount"
+                value={editor.output.filter?.amount ?? 100}
+                min={10}
+                max={100}
+                step={5}
+                onChange={(v) =>
+                  editor.setOutput({ filter: { id: activeFilter.id, ...(v === 100 ? {} : { amount: v }) } })
+                }
+                disabled={working}
+                suffix="%"
+                hint="full strength is 100%"
+              />
+            ) : null}
             <Slider
               label="Scale"
               value={editor.output.resize?.percent ?? 100}

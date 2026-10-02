@@ -23,8 +23,9 @@ export function Viewer() {
   const openIndex = useLibrary((s) => s.openIndex)
   const playing = useLibrary((s) => s.slideshowPlaying)
   const showInfo = useLibrary((s) => s.showInfo)
+  const editRequest = useLibrary((s) => s.editRequest)
   const interval = useLibrary((s) => s.settings.slideIntervalMs)
-  const { close, step, setSlideshow, toggleInfo, learnClip } = useLibrary()
+  const { close, step, setSlideshow, toggleInfo, learnClip, clearEditRequest } = useLibrary()
 
   const stageRef = useRef<HTMLDivElement>(null)
   const imgRef = useRef<HTMLImageElement>(null)
@@ -74,6 +75,22 @@ export function Viewer() {
     setProgress(0)
     setClipMeasured(false)
   }, [openIndex])
+
+  /**
+   * Starts an edit session for a picture asked for from the grid's context menu.
+   *
+   * Declared after the view reset above and after `useEditor`'s own path effect,
+   * both of which run first, so the session this opens belongs to the picture now
+   * on screen rather than to the one that was there when the request was made.
+   */
+  useEffect(() => {
+    if (editRequest === 0) return
+    clearEditRequest()
+    // Clips have no paintable picture; `openForEdit` refuses them, and this is the
+    // same rule restated for a request that arrived before the clip was opened.
+    if (isClip) return
+    void editor.begin()
+  }, [editRequest, isClip, editor.begin, clearEditRequest])
 
   // Crossfade: fade out, swap the source under cover, fade back in.
   useEffect(() => {

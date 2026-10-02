@@ -10,6 +10,11 @@
  * the renderer's CSP already permits alongside the thumbnail protocol.
  */
 
+// Type-only, so this file still has no runtime dependency. The filter recipes
+// themselves live in `./filters` and are resolved on the main process, which is
+// the side that has pixels to apply them to.
+import type { FilterSettings } from './filters'
+
 /** Which way the brush is working. */
 export type BrushMode = 'erase' | 'restore'
 
@@ -183,6 +188,16 @@ export interface OutputSettings {
   flip?: 'horizontal' | 'vertical'
   resize?: Resize
   adjust?: AdjustOptions
+  /**
+   * A named look from the shared catalogue, applied after the tone knobs.
+   *
+   * Distinct from `adjust` on purpose. `adjust` is a set of sliders a user is
+   * dialling in by hand and undoes by moving them back; a filter is a named
+   * recipe with an amount, chosen from a list and cleared in one click. Merging
+   * them would mean "Undo" on the brightness slider silently changed a filter
+   * the user had not touched.
+   */
+  filter?: FilterSettings
   /** Composite onto this 6-digit hex colour instead of leaving transparency. */
   background?: string
 }

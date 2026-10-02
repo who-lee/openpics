@@ -1,4 +1,5 @@
 import type {
+  BinResult,
   DriveInfo,
   Photo,
   ScanMode,
@@ -128,6 +129,7 @@ export function comparePhotos(a: Photo, b: Photo, key: SortKey, dir: SortDir): n
 }
 
 export type {
+  BinResult,
   DriveInfo,
   Photo,
   ScanMode,

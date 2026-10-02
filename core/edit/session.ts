@@ -2,6 +2,7 @@ import type { KeepSide, OutputSettings, Resize } from '../../shared/edit'
 import { allocateRaster, type Raster } from '../image/image'
 import { EditError } from './errors'
 import { EditHistory } from './history'
+import { filterRaster } from './filters'
 import { createMask, featherMask, maskStats, type Mask, type MaskStats } from './mask'
 import { selectRegion, type WandOptions, type WandResult } from './wand'
 import {
@@ -162,6 +163,12 @@ export function render(session: EditSession, featherRadius = 0): Raster {
   if (settings.flip) raster = flipRaster(raster, settings.flip)
   if (settings.resize) raster = resizeRaster(raster, settings.resize)
   if (settings.adjust) raster = adjustRaster(raster, settings.adjust)
+  // After the tone knobs and before the background flatten. A filter is a look on
+  // the finished picture, so it belongs after the geometry and the manual
+  // corrections rather than before them - applying a vignette before a crop would
+  // darken the corners of the frame that the crop then throws away, and the user
+  // would get a vignette that is not actually in the right place.
+  if (settings.filter) raster = filterRaster(raster, settings.filter)
 
   if (settings.background) {
     const [r, g, b] = parseHexColor(settings.background)
