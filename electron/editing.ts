@@ -14,7 +14,7 @@ import type {
   RefineOperation,
   SelectionCommand
 } from '../shared/edit'
-import { NO_FILTER } from '../shared/filters'
+import { NO_FILTER, findFilter } from '../shared/filters'
 import { encodePng } from '../core/image/png'
 import { EditError } from '../core/edit/session'
 import {
@@ -460,6 +460,18 @@ export function handleOutput(edit: string, settings: OutputSettings | null) {
     // offer to save a copy identical to the source. Normalising it away here means
     // the panel can be relaxed about what it sends.
     if (next.filter) {
+      // Checked before it is stored, not left to `render` below. An id that cannot
+      // be resolved would otherwise be written into the session first and only then
+      // rejected, which leaves the session holding a filter nothing can render: the
+      // throw looks like a bad request, but every later preview and save on that
+      // session fails the same way, so one bad id bricks the picture until it is
+      // closed. The renderer already guards this, and a session written by a newer
+      // build is exactly how an id from the future turns up here.
+      if (typeof next.filter.id !== 'string' || !findFilter(next.filter.id)) {
+        throw new EditError(
+          `unknown filter "${String(next.filter.id)}"; it has to be one of the ids in the filter catalogue`
+        )
+      }
       const filter = prune({ ...next.filter, amount: next.filter.amount === 100 ? undefined : next.filter.amount })
       next.filter = filter.id === NO_FILTER ? undefined : filter
     }

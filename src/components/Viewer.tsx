@@ -54,6 +54,25 @@ export function Viewer() {
   // time. Clips get the viewer without it rather than a broken paint mode.
   const painting = editor.active && !isClip
 
+  /**
+   * The size the stage lays the picture out by.
+   *
+   * A preview is downscaled, so measuring the `<img>` while one is up would make
+   * the picture jump under the cursor after every change; the session already
+   * knows the picture's real size, so that is what gets used. This also has to be
+   * the value the fit scale is derived from, because `natural` is never learned
+   * once a preview is showing: the load handler deliberately ignores a preview's
+   * own dimensions, so a picture opened straight into an edit can otherwise keep
+   * `natural` at zero and lay out at width zero, which reads as a black stage.
+   */
+  const shown: Size = useMemo(
+    () =>
+      editor.preview !== null && editor.info !== null
+        ? { w: editor.info.width, h: editor.info.height }
+        : natural,
+    [editor.preview, editor.info, natural]
+  )
+
   useLayoutEffect(() => {
     const el = stageRef.current
     if (!el) return
@@ -133,23 +152,23 @@ export function Viewer() {
   }, [playing, photo, interval, step])
 
   const fitScale = useMemo(() => {
-    if (natural.w === 0 || viewport.w === 0) return 1
-    return Math.min(viewport.w / natural.w, viewport.h / natural.h, MAX_FIT_UPSCALE)
-  }, [natural, viewport])
+    if (shown.w === 0 || viewport.w === 0) return 1
+    return Math.min(viewport.w / shown.w, viewport.h / shown.h, MAX_FIT_UPSCALE)
+  }, [shown, viewport])
 
-  const displayW = natural.w * fitScale * zoom
-  const displayH = natural.h * fitScale * zoom
+  const displayW = shown.w * fitScale * zoom
+  const displayH = shown.h * fitScale * zoom
 
   const clampPan = useCallback(
     (next: { x: number; y: number }, z: number): { x: number; y: number } => {
-      const maxX = Math.max(0, (natural.w * fitScale * z - viewport.w) / 2)
-      const maxY = Math.max(0, (natural.h * fitScale * z - viewport.h) / 2)
+      const maxX = Math.max(0, (shown.w * fitScale * z - viewport.w) / 2)
+      const maxY = Math.max(0, (shown.h * fitScale * z - viewport.h) / 2)
       return {
         x: clamp(next.x, -maxX, maxX),
         y: clamp(next.y, -maxY, maxY)
       }
     },
-    [natural, fitScale, viewport]
+    [shown, fitScale, viewport]
   )
 
   const applyZoom = useCallback(
@@ -278,12 +297,7 @@ export function Viewer() {
   if (photo === null || openIndex === null) return null
 
   const zoomPct = Math.round(zoom * 100)
-  const oneToOne = natural.w > 0 ? natural.w / (natural.w * fitScale) : 1
-
-  /** The size to lay out by: the picture's own size, even while a preview is up. */
-  const shown: Size = editor.preview !== null && editor.info !== null
-    ? { w: editor.info.width, h: editor.info.height }
-    : natural
+  const oneToOne = shown.w > 0 ? shown.w / (shown.w * fitScale) : 1
 
   /**
    * Maps the pointer onto the picture, in picture pixels.
@@ -513,8 +527,14 @@ export function Viewer() {
               onLoad={(event) => {
                 // A preview is downscaled, so trusting its own natural size would
                 // change the fit and make the picture jump under the cursor after
-                // every stroke. The session's size is the picture's real size.
-                if (editor.preview !== null) return
+                // every stroke. The session's size is the picture's real size, and
+                // it is recorded even for a preview so that dropping the preview
+                // again still has a real size to lay out from.
+                const info = editor.info
+                if (info !== null) {
+                  setNatural({ w: info.width, h: info.height })
+                  return
+                }
                 const img = event.currentTarget
                 setNatural({ w: img.naturalWidth, h: img.naturalHeight })
               }}

@@ -37,7 +37,7 @@
     "addons": "node scripts/fetch-addons.mjs",
     "prepackage": "npm run addons",
     "build:test": "tsc -p tsconfig.test.json",
-    "test": "npm run build:mcp && npm run build:test && node tests/mcp.test.mjs && node tests/editing.test.mjs && node tests/addons.test.mjs && node tests/video.test.mjs",
+    "test": "npm run build:mcp && npm run build:test && node tests/mcp.test.mjs && node tests/editing.test.mjs && node tests/filters.test.mjs && node tests/addons.test.mjs && node tests/video.test.mjs",
     "mcp": "npm run build:mcp && node dist-mcp/mcp/server.js",
     "package": "npm run build && electron-builder --win --x64",
     "package:dir": "npm run build && electron-builder --win --x64 --dir"
