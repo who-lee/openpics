@@ -23,7 +23,7 @@ one thing well and keeps your pictures on your machine:
 
 ## Install
 
-Grab `OpenPics-1.0.0-beta.4-setup.exe` from
+Grab `OpenPics-1.0.0-beta.5-setup.exe` from
 [releases](https://github.com/who-lee/openpics/releases) and run it. Windows
 11, x64. No installer dependencies: the PNG and JPEG codecs are part of the app,
 so there is no native image library to ship.
