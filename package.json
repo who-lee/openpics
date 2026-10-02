@@ -1,6 +1,6 @@
 {
   "name": "openpics",
-  "version": "1.0.0-beta.3",
+  "version": "1.0.0-beta.4",
   "description": "A fast desktop picture browser for Windows with a built-in background remover and an MCP server, so an AI agent can search, edit, and file your photos. Fully local: no upload, no telemetry, no account.",
   "main": "./out/main/index.js",
   "author": "Hen <who-lee>",
