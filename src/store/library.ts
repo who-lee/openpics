@@ -156,6 +156,12 @@ interface LibraryState {
   setShowSettings: (open: boolean) => void
   setTerminalOpen: (open: boolean) => void
   toggleTerminal: () => void
+
+  // AI dock
+  toggleAi: () => void
+  setAiDockExpanded: (expanded: boolean) => void
+  setAiDockWidth: (width: number) => void
+  sendAiMessage: (text: string) => Promise<void>
 }
 
 function sortPhotos(raw: Photo[], key: SortKey, dir: SortDir): Photo[] {
@@ -497,6 +503,12 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     // user reaches for the button avoids a "no drives" surprise.
     const drives = await bridge.library.drives()
     set({ drives })
+    // Knowing whether a model is installed lets the dock tell the truth about
+    // why it cannot answer, instead of failing on the first message.
+    void bridge.ai
+      .init()
+      .then((ai) => set({ aiModelReady: ai.ready }))
+      .catch(() => set({ aiModelReady: false }))
     // The persisted mode is the source the user last chose, so a machine left on
     // "This PC" has to come back up scanning drives rather than a stale folder.
     const scan = get().settings.scanMode === 'computer' ? get().scanComputer : get().rescan
@@ -977,6 +989,52 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   toggleTerminal() {
     set({ terminalOpen: !get().terminalOpen })
+  },
+
+  toggleAi() {
+    const next = !get().aiOpen
+    set({ aiOpen: next, aiDockExpanded: next })
+    void get().patch({ aiDockExpanded: next })
+  },
+
+  setAiDockExpanded(expanded) {
+    set({ aiDockExpanded: expanded, aiOpen: expanded })
+    void get().patch({ aiDockExpanded: expanded })
+  },
+
+  setAiDockWidth(width) {
+    const clamped = Math.min(720, Math.max(240, Math.round(width)))
+    set({ aiDockWidth: clamped })
+    void get().patch({ aiDockWidth: clamped })
+  },
+
+  async sendAiMessage(text) {
+    const message = text.trim()
+    if (message === '') return
+    const state = get()
+    const paths = Array.from(state.selected)
+      .map((index) => state.photos[index]?.path)
+      .filter((path): path is string => Boolean(path))
+    set({
+      aiMessages: [...state.aiMessages, { role: 'user', content: message }],
+      aiThinking: true
+    })
+    try {
+      const reply = await bridge.ai.chat(message, { paths })
+      set((current) => ({
+        aiMessages: [
+          ...current.aiMessages,
+          { role: 'assistant', content: reply.content || 'The model returned nothing.' }
+        ],
+        aiThinking: false
+      }))
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      set((current) => ({
+        aiMessages: [...current.aiMessages, { role: 'assistant', content: `Error: ${detail}` }],
+        aiThinking: false
+      }))
+    }
   }
 }))
 

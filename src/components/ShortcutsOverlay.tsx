@@ -14,7 +14,9 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ['Escape', 'close the viewer'],
       ['/', 'jump to the filter box'],
       ['Ctrl + O', 'open another folder'],
-      ['Ctrl + R', 'rescan the folder']
+      ['Ctrl + R', 'rescan the folder'],
+      ['Ctrl + A', 'select everything shown'],
+      ['Ctrl + I', 'invert the selection']
     ]
   },
   {
@@ -38,6 +40,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
     title: 'App',
     items: [
       ['Ctrl + `', 'show or hide the terminal'],
+      ['Ctrl + Shift + A', 'show or hide the AI assistant'],
       ['Ctrl + H', 'hide the window'],
       ['?', 'keyboard shortcuts']
     ]

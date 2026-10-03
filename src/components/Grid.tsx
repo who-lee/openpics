@@ -239,7 +239,7 @@ export function Grid() {
   const rows = layout.rows.slice(range.start, range.end + 1)
 
   return (
-    <>
+    <div className="flex min-h-0 flex-1 flex-col">
       <SelectionBar />
       <div
         ref={attachScroller}
@@ -283,7 +283,7 @@ export function Grid() {
 
       {hover ? <HoverInfoCard card={hover} /> : null}
       {menu ? <PhotoContextMenu request={menu} onClose={() => setMenu(null)} /> : null}
-    </>
+    </div>
   )
 }
 

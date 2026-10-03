@@ -5,6 +5,7 @@ import { Toolbar } from './components/Toolbar'
 import { Breadcrumbs } from './components/Breadcrumbs'
 import { FilterBar } from './components/FilterBar'
 import { Grid } from './components/Grid'
+import { AiDock } from './components/AiDock'
 import { Viewer } from './components/Viewer'
 import { StatusBar } from './components/StatusBar'
 import { ShortcutsOverlay } from './components/ShortcutsOverlay'
@@ -24,6 +25,9 @@ export default function App() {
     toggleShortcuts,
     toggleSlideshow,
     toggleTerminal,
+    selectAll,
+    invertSelection,
+    toggleAi,
     open,
     cursor,
     select,
@@ -99,6 +103,13 @@ export default function App() {
         } else if (event.key.toLowerCase() === 'r') {
           event.preventDefault()
           void rescan()
+        } else if (event.key.toLowerCase() === 'a') {
+          event.preventDefault()
+          if (event.shiftKey) toggleAi()
+          else selectAll()
+        } else if (event.key.toLowerCase() === 'i') {
+          event.preventDefault()
+          invertSelection()
         } else if (event.key.toLowerCase() === 'h') {
           event.preventDefault()
           void bridge.win.hide()
@@ -196,6 +207,9 @@ export default function App() {
     toggleSlideshow,
     toggleInfo,
     toggleTerminal,
+    selectAll,
+    invertSelection,
+    toggleAi,
     setQuery
   ])
 
@@ -246,7 +260,10 @@ export default function App() {
           <Toolbar />
           <Breadcrumbs />
           <FilterBar />
-          <Grid />
+          <div className="flex min-h-0 flex-1">
+            <Grid />
+            <AiDock />
+          </div>
           <TerminalPanel />
           <StatusBar />
           <Viewer />
