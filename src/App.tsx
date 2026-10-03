@@ -3,6 +3,7 @@ import { ArrowLeft } from '@phosphor-icons/react'
 import { Titlebar } from './components/Titlebar'
 import { Toolbar } from './components/Toolbar'
 import { Breadcrumbs } from './components/Breadcrumbs'
+import { FilterBar } from './components/FilterBar'
 import { Grid } from './components/Grid'
 import { Viewer } from './components/Viewer'
 import { StatusBar } from './components/StatusBar'
@@ -244,6 +245,7 @@ export default function App() {
         <>
           <Toolbar />
           <Breadcrumbs />
+          <FilterBar />
           <Grid />
           <TerminalPanel />
           <StatusBar />

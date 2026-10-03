@@ -91,6 +91,14 @@ interface LibraryState {
   setSort: (key: SortKey) => void
   setQuery: (query: string) => void
 
+  // Filters
+  setTypeFilter: (type: 'all' | 'image' | 'video') => void
+  setDateRange: (start: number | null, end: number | null) => void
+  setSizeRange: (min: number | null, max: number | null) => void
+  setCameraFilter: (camera: string) => void
+  setTagFilter: (tags: string[]) => void
+  clearAllFilters: () => void
+
   select: (index: number, mode: 'replace' | 'toggle' | 'range') => void
   /** Selects every currently visible photo. */
   selectAll: () => void
@@ -159,18 +167,94 @@ function parentDir(path: string): string {
   return trimmed.slice(0, cut)
 }
 
-function visibleIndices(photos: Photo[], query: string): number[] {
-  const needle = query.trim().toLowerCase()
-  if (needle === '') return photos.map((_, index) => index)
+/** Everything that narrows the library, combined with AND. */
+export interface FilterCriteria {
+  query: string
+  typeFilter: 'all' | 'image' | 'video'
+  dateStart: number | null
+  dateEnd: number | null
+  sizeMin: number | null
+  sizeMax: number | null
+  cameraFilter: string
+  tagFilter: string[]
+}
+
+/** Pulls the filter slice out of the whole store state. */
+function criteriaOf(state: LibraryState): FilterCriteria {
+  return {
+    query: state.query,
+    typeFilter: state.typeFilter,
+    dateStart: state.dateStart,
+    dateEnd: state.dateEnd,
+    sizeMin: state.sizeMin,
+    sizeMax: state.sizeMax,
+    cameraFilter: state.cameraFilter,
+    tagFilter: state.tagFilter
+  }
+}
+
+/** True when any filter would hide something, so the UI can show an active count. */
+export function activeFilterCount(state: LibraryState): number {
+  let count = 0
+  if (state.query.trim() !== '') count++
+  if (state.typeFilter !== 'all') count++
+  if (state.dateStart !== null || state.dateEnd !== null) count++
+  if (state.sizeMin !== null || state.sizeMax !== null) count++
+  if (state.cameraFilter.trim() !== '') count++
+  if (state.tagFilter.length > 0) count++
+  return count
+}
+
+/** Camera/model recorded for a path, when EXIF has been read. Empty otherwise. */
+function cameraOf(cache: Map<string, unknown>, path: string): string {
+  const entry = cache.get(path)
+  if (entry && typeof entry === 'object') {
+    const value = entry as { camera?: unknown; model?: unknown; Make?: unknown; Model?: unknown }
+    for (const candidate of [value.camera, value.model, value.Make, value.Model]) {
+      if (typeof candidate === 'string' && candidate.trim() !== '') return candidate
+    }
+  }
+  return ''
+}
+
+function matchesFilters(
+  photo: Photo,
+  filters: FilterCriteria,
+  tags: Map<string, string[]>,
+  exif: Map<string, unknown>
+): boolean {
+  const needle = filters.query.trim().toLowerCase()
+  if (
+    needle !== '' &&
+    !photo.name.toLowerCase().includes(needle) &&
+    !photo.relDir.toLowerCase().includes(needle)
+  ) {
+    return false
+  }
+  if (filters.typeFilter === 'image' && photo.kind !== 'photo') return false
+  if (filters.typeFilter === 'video' && photo.kind !== 'video') return false
+  if (filters.dateStart !== null && photo.mtime < filters.dateStart) return false
+  if (filters.dateEnd !== null && photo.mtime > filters.dateEnd) return false
+  if (filters.sizeMin !== null && photo.bytes < filters.sizeMin) return false
+  if (filters.sizeMax !== null && photo.bytes > filters.sizeMax) return false
+  const camera = filters.cameraFilter.trim().toLowerCase()
+  if (camera !== '' && !cameraOf(exif, photo.path).toLowerCase().includes(camera)) return false
+  if (filters.tagFilter.length > 0) {
+    const owned = tags.get(photo.path) ?? []
+    if (!filters.tagFilter.every((tag) => owned.includes(tag))) return false
+  }
+  return true
+}
+
+function visibleIndices(
+  photos: Photo[],
+  filters: FilterCriteria,
+  tags: Map<string, string[]>,
+  exif: Map<string, unknown>
+): number[] {
   const out: number[] = []
   for (let index = 0; index < photos.length; index++) {
-    const photo = photos[index]!
-    if (
-      photo.name.toLowerCase().includes(needle) ||
-      photo.relDir.toLowerCase().includes(needle)
-    ) {
-      out.push(index)
-    }
+    if (matchesFilters(photos[index]!, filters, tags, exif)) out.push(index)
   }
   return out
 }
@@ -208,6 +292,32 @@ type StoreGet = () => LibraryState
 type StoreSet = (partial: Partial<LibraryState>) => void
 
 /**
+ * Applies a filter change and re-derives everything that depends on the filter.
+ *
+ * Cursor, anchor and selection are all library indices, so narrowing the set can
+ * leave any of them pointing at a photo the grid no longer shows. Recomputing the
+ * visible list first and then settling each reference is what keeps a tile, the
+ * cursor and the viewer from disagreeing about which picture is which.
+ */
+function applyFilterChange(
+  get: StoreGet,
+  set: StoreSet,
+  patch: Partial<FilterCriteria>
+): void {
+  const state = get()
+  const criteria: FilterCriteria = { ...criteriaOf(state), ...patch }
+  const visible = visibleIndices(state.photos, criteria, state.photoTags, state.exifCache)
+  const keepsCursor = visible.includes(state.cursor)
+  set({
+    ...patch,
+    visible,
+    cursor: keepsCursor ? state.cursor : (visible[0] ?? -1),
+    anchor: -1,
+    selected: new Set()
+  })
+}
+
+/**
  * Commits a finished scan, unless a newer one has already started.
  *
  * Shared by both modes so the reset that follows a completed walk is identical:
@@ -222,12 +332,12 @@ function applyScanResult(
 ): void {
   if (generation !== scanGeneration) return
   const { photos: raw, ...rest } = result
-  const { settings, query } = get()
+  const { settings } = get()
   const photos = sortPhotos(raw, settings.sortKey, settings.sortDir)
   set({
     raw,
     photos,
-    visible: visibleIndices(photos, query),
+    visible: visibleIndices(photos, criteriaOf(get()), get().photoTags, get().exifCache),
     status: 'ready',
     error: null,
     // Computer mode walks every drive, so there is no single root to report; the
@@ -412,7 +522,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const photos = sortChanged
       ? sortPhotos(state.raw, settings.sortKey, settings.sortDir)
       : state.photos
-    set({ settings, photos, visible: visibleIndices(photos, state.query) })
+    set({ settings, photos, visible: visibleIndices(photos, criteriaOf(state), state.photoTags, state.exifCache) })
     // Which source and how deep to walk both decide what exists on disk, so any
     // change to them has to re-read from disk rather than relabel the old set.
     if (patch.root !== undefined || patch.recursive !== undefined || patch.scanMode !== undefined) {
@@ -433,17 +543,39 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
 
   setQuery(query) {
-    const { photos, cursor } = get()
-    const visible = visibleIndices(photos, query)
-    // Focus has to follow the filter, or the cursor would sit on a photo the
-    // grid is no longer showing and Enter would open something invisible.
-    const keepsCursor = visible.includes(cursor)
-    set({
-      query,
-      visible,
-      cursor: keepsCursor ? cursor : (visible[0] ?? -1),
-      anchor: -1,
-      selected: new Set()
+    applyFilterChange(get, set, { query })
+  },
+
+  setTypeFilter(typeFilter) {
+    applyFilterChange(get, set, { typeFilter })
+  },
+
+  setDateRange(dateStart, dateEnd) {
+    applyFilterChange(get, set, { dateStart, dateEnd })
+  },
+
+  setSizeRange(sizeMin, sizeMax) {
+    applyFilterChange(get, set, { sizeMin, sizeMax })
+  },
+
+  setCameraFilter(cameraFilter) {
+    applyFilterChange(get, set, { cameraFilter })
+  },
+
+  setTagFilter(tagFilter) {
+    applyFilterChange(get, set, { tagFilter })
+  },
+
+  clearAllFilters() {
+    applyFilterChange(get, set, {
+      query: '',
+      typeFilter: 'all',
+      dateStart: null,
+      dateEnd: null,
+      sizeMin: null,
+      sizeMax: null,
+      cameraFilter: '',
+      tagFilter: []
     })
   },
 
@@ -519,7 +651,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   forgetPaths(paths) {
     if (paths.length === 0) return
-    const { raw, photos, query, cursor, anchor, selected, openIndex } = get()
+    const { raw, photos, cursor, anchor, selected, openIndex } = get()
     // Windows compares paths without regard to case, so this has to as well. A
     // mismatch here would leave a deleted file sitting in the grid forever.
     const gone = new Set(paths.map((path) => path.toLowerCase()))
@@ -586,7 +718,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     set({
       raw: nextRaw,
       photos: nextPhotos,
-      visible: visibleIndices(nextPhotos, query),
+      visible: visibleIndices(nextPhotos, criteriaOf(get()), get().photoTags, get().exifCache),
       cursor: settle(cursor),
       anchor: settle(anchor),
       selected: nextSelected,
