@@ -251,6 +251,10 @@ function expectedStamp() {
 }
 
 async function main() {
+  // AI models are user-supplied and far too large to fetch here, but
+  // electron-builder needs the source folder to exist at package time. vendor/
+  // is gitignored, so the empty folder is created on demand rather than committed.
+  mkdirSync(join(ROOT, 'vendor', 'models'), { recursive: true })
   const already = WANTED.filter((name) => existsSync(join(DEST, name)))
   const want = expectedStamp()
   if (already.length === WANTED.length && readStamp() === want) {

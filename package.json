@@ -89,6 +89,17 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "build/openpics-ai-prompt-default.txt",
+        "to": "openpics-ai-prompt-default.txt"
+      },
+      {
+        "from": "vendor/models",
+        "to": "models",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
