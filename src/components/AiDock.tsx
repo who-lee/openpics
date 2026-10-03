@@ -36,7 +36,7 @@ export function AiDock() {
 
   const submit = (): void => {
     const text = draft.trim()
-    if (text === '' || !modelReady) return
+    if (text === '' || !modelReady || thinking) return
     setDraft('')
     void sendAiMessage(text)
   }
@@ -118,18 +118,23 @@ export function AiDock() {
           </div>
         ) : (
           <div className="flex flex-col gap-2.5">
-            {messages.map((message, index) => (
-              <div
-                key={index}
-                className={
-                  message.role === 'user'
-                    ? 'ml-6 rounded-[8px] bg-tint px-3 py-2 text-[12px] leading-relaxed text-ink'
-                    : 'mr-6 whitespace-pre-wrap rounded-[8px] border border-line px-3 py-2 text-[12px] leading-relaxed text-ink-2'
-                }
-              >
-                {message.content}
-              </div>
-            ))}
+            {messages.map((message, index) => {
+              // An assistant bubble with no text yet is the streaming placeholder;
+              // the Thinking row below already says so.
+              if (message.role === 'assistant' && message.content === '' && thinking) return null
+              return (
+                <div
+                  key={index}
+                  className={
+                    message.role === 'user'
+                      ? 'ml-6 rounded-[8px] bg-tint px-3 py-2 text-[12px] leading-relaxed text-ink'
+                      : 'mr-6 whitespace-pre-wrap rounded-[8px] border border-line px-3 py-2 text-[12px] leading-relaxed text-ink-2'
+                  }
+                >
+                  {message.content}
+                </div>
+              )
+            })}
             {thinking ? (
               <div className="mr-6 rounded-[8px] border border-line px-3 py-2 text-[12px] text-ink-3">
                 Thinking…
@@ -151,7 +156,7 @@ export function AiDock() {
               }
             }}
             rows={2}
-            disabled={!modelReady}
+            disabled={!modelReady || thinking}
             placeholder={modelReady ? 'Ask about your pictures…' : 'Add a model to chat'}
             aria-label="Message the AI assistant"
             className="min-h-[44px] flex-1 resize-none rounded-[8px] border border-line bg-raised px-2.5 py-2 text-[12px] text-ink placeholder:text-ink-3 transition-colors duration-150 focus:border-line-strong focus:outline-none disabled:opacity-50"
@@ -160,7 +165,7 @@ export function AiDock() {
             size="sm"
             variant="accent"
             className="mb-0.5 px-2"
-            disabled={!modelReady || draft.trim() === ''}
+            disabled={!modelReady || thinking || draft.trim() === ''}
             onClick={submit}
           >
             <PaperPlaneRight size={14} weight="regular" />

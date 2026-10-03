@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type { OpenPicsBridge } from '../shared/bridge'
 import {
+  AI_DELTA_CHANNEL,
   COMMAND_CHANNEL,
   OPEN_FILES_CHANNEL,
   SCAN_PROGRESS_CHANNEL,
@@ -119,7 +120,8 @@ const bridge: OpenPicsBridge = {
     getPrompt: () => ipcRenderer.invoke('ai:getPrompt'),
     setPrompt: (content: string) => ipcRenderer.invoke('ai:setPrompt', content),
     chat: (message: string, context?: any) => ipcRenderer.invoke('ai:chat', message, context),
-    autotag: (photoIds: string[]) => ipcRenderer.invoke('ai:autotag', photoIds)
+    onDelta: (handler) => subscribe(AI_DELTA_CHANNEL, handler),
+    autotag: (targets: Array<{ id: string; path: string }>) => ipcRenderer.invoke('ai:autotag', targets)
   },
   win: {
     alwaysOnTop: (value) => ipcRenderer.invoke('win:always-on-top', value),

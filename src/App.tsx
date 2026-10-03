@@ -11,7 +11,7 @@ import { StatusBar } from './components/StatusBar'
 import { ShortcutsOverlay } from './components/ShortcutsOverlay'
 import { SettingsPanel } from './components/SettingsPanel'
 import { TerminalPanel } from './components/TerminalPanel'
-import { useLibrary, useOpenFilesSubscription } from './store/library'
+import { useAiDeltaSubscription, useLibrary, useOpenFilesSubscription } from './store/library'
 import { bridge } from './lib/bridge'
 
 export default function App() {
@@ -44,6 +44,9 @@ export default function App() {
   // Windows can hand the app file paths at any time, including before boot has
   // finished, so the subscription is owned here rather than by a child.
   useOpenFilesSubscription()
+
+  // Streamed AI reply pieces are appended to the dock's last message.
+  useAiDeltaSubscription()
 
   const onDismissSettings = useCallback(() => setShowSettings(false), [setShowSettings])
 

@@ -50,3 +50,29 @@ export function ensureUserDataDir(): void {
     mkdirSync(getUserDataDir(), { recursive: true })
   } catch {}
 }
+
+/**
+ * The llama.cpp runtime, shipped as extraResources under `llama/`.
+ *
+ * The packaged path is checked first so a release always runs the binary the
+ * build put there; `vendor/llama` is what `npm run llama` fills in a checkout,
+ * and is absent from the installed app. Windows resolves the sibling DLLs from
+ * the executable's own directory, so callers should spawn with this as cwd.
+ */
+export function getLlamaDir(): string {
+  const candidates = [
+    resolve(process.resourcesPath, 'llama'),
+    resolve(process.cwd(), 'vendor', 'llama'),
+    resolve(process.cwd(), 'llama'),
+  ]
+  for (const p of candidates) {
+    try {
+      if (existsSync(join(p, 'llama-server.exe'))) return p
+    } catch {}
+  }
+  return resolve(process.resourcesPath, 'llama')
+}
+
+export function getLlamaServerPath(): string {
+  return join(getLlamaDir(), 'llama-server.exe')
+}

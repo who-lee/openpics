@@ -250,10 +250,12 @@ export interface OpenPicsBridge {
     getPrompt(): Promise<{ path: string; content: string }>,
     /** Write user-editable prompt contents. */
     setPrompt(content: string): Promise<{ path: string; content: string }>,
-    /** Chat with AI (non-streaming placeholder for scaffold). */
+    /** Chat with AI, streamed piece by piece through onDelta. */
     chat(message: string, context?: AiChatContext): Promise<AiChatReply>,
-    /** Toggle auto-tagging for selection or library scope (placeholder). */
-    autotag(photoIds: string[]): Promise<Array<{ photoId: string; tags: string[] }>>
+    /** Subscribe to streamed reply pieces; returns an unsubscribe function. */
+    onDelta(handler: (delta: string) => void): () => void,
+    /** Suggest tags for the given files (text-only model: names, not pixels). */
+    autotag(targets: Array<{ id: string; path: string }>): Promise<Array<{ photoId: string; tags: string[] }>>
   }
 }
 
@@ -275,6 +277,7 @@ export const SCAN_PROGRESS_CHANNEL = 'opencpics:scan-progress'
 export const OPEN_FILES_CHANNEL = 'opencpics:open-files'
 export const TERMINAL_DATA_CHANNEL = 'opencpics:terminal-data'
 export const TERMINAL_EXIT_CHANNEL = 'opencpics:terminal-exit'
+export const AI_DELTA_CHANNEL = 'opencpics:ai-delta'
 
 
 

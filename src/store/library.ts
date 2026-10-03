@@ -162,6 +162,7 @@ interface LibraryState {
   setAiDockExpanded: (expanded: boolean) => void
   setAiDockWidth: (width: number) => void
   sendAiMessage: (text: string) => Promise<void>
+  appendAiDelta: (delta: string) => void
 }
 
 function sortPhotos(raw: Photo[], key: SortKey, dir: SortDir): Photo[] {
@@ -1008,6 +1009,20 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     void get().patch({ aiDockWidth: clamped })
   },
 
+  appendAiDelta(delta) {
+    if (delta === '') return
+    set((current) => {
+      const messages = current.aiMessages.slice()
+      const last = messages[messages.length - 1]
+      if (last && last.role === 'assistant') {
+        messages[messages.length - 1] = { ...last, content: last.content + delta }
+      } else {
+        messages.push({ role: 'assistant', content: delta })
+      }
+      return { aiMessages: messages }
+    })
+  },
+
   async sendAiMessage(text) {
     const message = text.trim()
     if (message === '') return
@@ -1015,25 +1030,41 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const paths = Array.from(state.selected)
       .map((index) => state.photos[index]?.path)
       .filter((path): path is string => Boolean(path))
+    const history = state.aiMessages.slice(-12).map((turn) => ({ role: turn.role, content: turn.content }))
     set({
-      aiMessages: [...state.aiMessages, { role: 'user', content: message }],
+      aiMessages: [
+        ...state.aiMessages,
+        { role: 'user', content: message },
+        { role: 'assistant', content: '' }
+      ],
       aiThinking: true
     })
     try {
-      const reply = await bridge.ai.chat(message, { paths })
-      set((current) => ({
-        aiMessages: [
-          ...current.aiMessages,
-          { role: 'assistant', content: reply.content || 'The model returned nothing.' }
-        ],
-        aiThinking: false
-      }))
+      const reply = await bridge.ai.chat(message, { paths, history })
+      set((current) => {
+        const messages = current.aiMessages.slice()
+        const last = messages[messages.length - 1]
+        if (last && last.role === 'assistant') {
+          messages[messages.length - 1] = {
+            ...last,
+            content: reply.content || last.content || 'The model returned nothing.'
+          }
+        }
+        return { aiMessages: messages, aiThinking: false }
+      })
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
-      set((current) => ({
-        aiMessages: [...current.aiMessages, { role: 'assistant', content: `Error: ${detail}` }],
-        aiThinking: false
-      }))
+      set((current) => {
+        const messages = current.aiMessages.slice()
+        const last = messages[messages.length - 1]
+        const note = `Error: ${detail}`
+        if (last && last.role === 'assistant' && last.content === '') {
+          messages[messages.length - 1] = { ...last, content: note }
+        } else {
+          messages.push({ role: 'assistant', content: note })
+        }
+        return { aiMessages: messages, aiThinking: false }
+      })
     }
   }
 }))
@@ -1053,6 +1084,20 @@ export function useOpenFilesSubscription(): void {
     // rather than racing it.
     return bridge.library.onOpenFiles((paths) => {
       void useLibrary.getState().openFiles(paths)
+    })
+  }, [])
+}
+
+/**
+ * Streams AI reply pieces into whatever assistant message is on screen.
+ *
+ * Owned here so the listener lives for the life of the window rather than being
+ * re-registered whenever the dock re-renders.
+ */
+export function useAiDeltaSubscription(): void {
+  useEffect(() => {
+    return bridge.ai.onDelta((delta) => {
+      useLibrary.getState().appendAiDelta(delta)
     })
   }, [])
 }

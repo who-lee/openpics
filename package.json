@@ -36,7 +36,8 @@
     "build:mcp": "tsc -p tsconfig.mcp.json",
     "addons": "node scripts/fetch-addons.mjs",
     "model": "node scripts/fetch-model.mjs",
-    "prepackage": "npm run addons && npm run model",
+    "llama": "node scripts/fetch-llama.mjs",
+    "prepackage": "npm run addons && npm run llama && npm run model",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build:mcp && npm run build:test && node tests/mcp.test.mjs && node tests/editing.test.mjs && node tests/filters.test.mjs && node tests/addons.test.mjs && node tests/video.test.mjs",
     "mcp": "npm run build:mcp && node dist-mcp/mcp/server.js",
@@ -87,6 +88,13 @@
       {
         "from": "vendor/addons",
         "to": "addons",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "vendor/llama",
+        "to": "llama",
         "filter": [
           "**/*"
         ]

@@ -11,7 +11,8 @@ import type {
   SelectionCommand
 } from '../shared/edit'
 import { isImage, THUMB_SCHEME } from '../shared/protocol'
-import { OPEN_FILES_CHANNEL, SCAN_PROGRESS_CHANNEL } from '../shared/bridge'
+import { AI_DELTA_CHANNEL, OPEN_FILES_CHANNEL, SCAN_PROGRESS_CHANNEL } from '../shared/bridge'
+import type { AiChatContext } from '../shared/ai-types'
 import { cancelScan, listDrives, scanComputer, scanFolder } from './scanner'
 import {
   disposeEdits,
@@ -238,7 +239,7 @@ function sendProgress(progress: ScanProgress): void {
   if (win && !win.isDestroyed()) win.webContents.send(SCAN_PROGRESS_CHANNEL, progress)
 }
 
-import { autotagPhoto, ensurePromptFile, findBundledModels, getAiState, initAi, pickDefaultModel } from './ai'
+import { autotagPhoto, chatAi, ensurePromptFile, findBundledModels, getAiState, initAi, pickDefaultModel, stopAi } from './ai'
 
 function wireIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
@@ -364,15 +365,24 @@ function wireIpc(): void {
     return { path: p, content: readPromptFile() }
   })
 
-  ipcMain.handle('ai:chat', async (_e, message: string) => {
-    // Placeholder: return acknowledgment; real llama.cpp integration later
-    return { content: '' }
+  ipcMain.handle('ai:chat', async (event, message: string, context?: AiChatContext) => {
+    const onDelta = (delta: string): void => {
+      if (!event.sender.isDestroyed()) event.sender.send(AI_DELTA_CHANNEL, delta)
+    }
+    try {
+      return await chatAi(message, context, onDelta)
+    } catch (err) {
+      return { content: `Error: ${err instanceof Error ? err.message : String(err)}` }
+    }
   })
 
-  ipcMain.handle('ai:autotag', async (_e, photoIds: string[]) => {
-    const res: Array<{ photoId: string; tags: string[] }> = []
-    for (const id of photoIds) res.push({ photoId: id, tags: [] })
-    return res
+  ipcMain.handle('ai:autotag', async (_e, targets: Array<{ id: string; path: string }>) => {
+    const results: Array<{ photoId: string; tags: string[] }> = []
+    for (const target of targets ?? []) {
+      const tagged = await autotagPhoto(target.id, target.path)
+      results.push({ photoId: tagged.photoId, tags: tagged.tags })
+    }
+    return results
   })
   ipcMain.handle('wallpaper:get', () => getWallpaper())
   // Deliberately not debounced or rate-limited: the user asked for this desktop
@@ -524,6 +534,8 @@ if (!app.requestSingleInstanceLock()) {
     disposeEdits()
     // Shells are child processes of the app: they must not be left running.
     killAllTerminals()
+    // The AI server is a child process too; stop it so no orphan holds the model.
+    stopAi()
   })
 
   app.on('window-all-closed', () => {

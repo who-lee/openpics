@@ -20,9 +20,16 @@ export type AiState = {
   lastError: string | null
 }
 
+export type AiChatTurn = {
+  role: 'user' | 'assistant'
+  content: string
+}
+
 export type AiChatContext = {
   photoIds?: string[]
   paths?: string[]
+  /** Prior turns, oldest first, so the model can follow the conversation. */
+  history?: AiChatTurn[]
 }
 
 export type AiChatReply = {
