@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
-import { DEFAULT_SETTINGS, comparePhotos, type DriveInfo, type Photo, type ScanProgress, type ScanResult, type Settings, type SortDir, type SortKey } from '@shared/protocol'
+import { DEFAULT_SETTINGS, comparePhotos, type DriveInfo, type Photo, type ScanProgress, type ScanResult, type Settings, type SmartCollection, type SortDir, type SortKey } from '@shared/protocol'
 import { bridge } from '@/lib/bridge'
 
 export type ScanStatus = 'idle' | 'scanning' | 'ready' | 'error'
@@ -44,6 +44,29 @@ interface LibraryState {
   /** Whether the terminal drawer is showing. Its shells keep running when hidden. */
   terminalOpen: boolean
   query: string
+
+  // Filters
+  typeFilter: 'all' | 'image' | 'video'
+  dateStart: number | null
+  dateEnd: number | null
+  sizeMin: number | null
+  sizeMax: number | null
+  cameraFilter: string
+  tagFilter: string[]
+
+  // Smart collections
+  collections: SmartCollection[]
+  activeCollectionId: string | null
+
+  // AI
+  aiDockExpanded: boolean
+  aiDockWidth: number
+  aiOpen: boolean
+  aiThinking: boolean
+  aiModelReady: boolean
+  aiMessages: { role: 'user' | 'assistant'; content: string }[]
+  photoTags: Map<string, string[]>
+  exifCache: Map<string, unknown>
 
   /**
    * Counts the requests to open a picture straight into the editor.
@@ -235,6 +258,26 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   showSettings: false,
   terminalOpen: false,
   query: '',
+
+  typeFilter: 'all',
+  dateStart: null,
+  dateEnd: null,
+  sizeMin: null,
+  sizeMax: null,
+  cameraFilter: '',
+  tagFilter: [],
+
+  collections: [],
+  activeCollectionId: null,
+
+  aiDockExpanded: initial.aiDockExpanded ?? true,
+  aiDockWidth: initial.aiDockWidth ?? 360,
+  aiOpen: initial.aiDockExpanded ?? true,
+  aiThinking: false,
+  aiModelReady: false,
+  aiMessages: [],
+  photoTags: new Map(),
+  exifCache: new Map(),
 
   editRequest: 0,
 

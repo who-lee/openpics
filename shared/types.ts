@@ -94,6 +94,19 @@ export type SortKey = 'name' | 'mtime' | 'size' | 'dimensions'
 
 export type SortDir = 'asc' | 'desc'
 
+export interface SmartCollectionRule {
+  field: 'tag' | 'camera' | 'cameraMake' | 'cameraModel' | 'date' | 'size' | 'type' | 'orientation' | 'name'
+  op: 'eq' | 'neq' | 'contains' | 'gte' | 'lte' | 'between'
+  value: string | number | [number, number]
+}
+
+export interface SmartCollection {
+  id: string
+  name: string
+  rules: SmartCollectionRule[]
+  enabled: boolean
+}
+
 export interface Settings {
   root: string
   /** Whether the gallery shows one folder or every drive on the machine. */
@@ -134,6 +147,13 @@ export interface Settings {
    * the size it was left, the way an editor's terminal panel does.
    */
   terminalHeight: number
+  /** AI settings (fully local) */
+  aiEnabled: boolean
+  aiDockExpanded: boolean
+  aiDockWidth: number
+  aiModelPath: string
+  aiPromptPath: string
+  aiCollections: SmartCollection[]
 }
 
 export interface ThumbnailStats {

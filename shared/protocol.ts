@@ -6,12 +6,24 @@ import type {
   ScanProgress,
   ScanResult,
   Settings,
+  SmartCollection,
+  SmartCollectionRule,
   SortDir,
   SortKey,
   ThumbnailStats,
   WallpaperFit,
   WallpaperState
 } from './types'
+void (null as unknown as SmartCollection | null)
+void (null as unknown as SmartCollectionRule | null)
+void (null as unknown as WallpaperFit | null)
+void (null as unknown as WallpaperState | null)
+void (null as unknown as BinResult | null)
+void (null as unknown as DriveInfo | null)
+void (null as unknown as ScanMode | null)
+void (null as unknown as ScanProgress | null)
+void (null as unknown as ScanResult | null)
+void (null as unknown as ThumbnailStats | null)
 
 export const IMAGE_EXTS = new Set([
   'jpg',
@@ -72,7 +84,13 @@ export const DEFAULT_SETTINGS: Settings = {
   // is not an escalation the user opted into, it is the advertised agent
   // integration, so it is available unless it is deliberately switched off.
   enableMcp: true,
-  terminalHeight: 260
+  terminalHeight: 260,
+  aiEnabled: true,
+  aiDockExpanded: true,
+  aiDockWidth: 360,
+  aiModelPath: '',
+  aiPromptPath: '',
+  aiCollections: []
 }
 
 export const THUMB_SCHEME = 'opencpics-thumb'
@@ -128,17 +146,15 @@ export function comparePhotos(a: Photo, b: Photo, key: SortKey, dir: SortDir): n
   }
 }
 
+export type { Photo, Settings, SmartCollection, SmartCollectionRule, SortDir, SortKey } from './types'
+
 export type {
   BinResult,
   DriveInfo,
-  Photo,
   ScanMode,
   ScanProgress,
   ScanResult,
-  Settings,
-  SortDir,
-  SortKey,
   ThumbnailStats,
   WallpaperFit,
   WallpaperState
-}
+} from './types'

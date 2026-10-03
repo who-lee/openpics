@@ -20,7 +20,8 @@ import type { Settings } from './types'
 const NUMBER_BOUNDS: Partial<Record<keyof Settings, [number, number]>> = {
   rowHeight: [64, 512],
   slideIntervalMs: [500, 120_000],
-  terminalHeight: [80, 4000]
+  terminalHeight: [80, 4000],
+  aiDockWidth: [240, 720]
 }
 
 function coerceNumber(key: keyof Settings, value: unknown, fallback: number): number {
@@ -98,7 +99,13 @@ const DEFAULT_FALLBACK: Partial<Record<keyof Settings, unknown>> = {
   scanMode: 'folder',
   theme: 'dark',
   sortKey: 'name',
-  sortDir: 'asc'
+  sortDir: 'asc',
+  aiEnabled: true,
+  aiDockExpanded: true,
+  aiDockWidth: 360,
+  aiModelPath: '',
+  aiPromptPath: '',
+  aiCollections: []
 }
 
 /**
