@@ -5,6 +5,7 @@ import { Thumb } from './Thumb'
 import { EmptyState, ScanningState } from './EmptyState'
 import { HoverInfoCard, type HoverCard } from './HoverInfoCard'
 import { PhotoContextMenu, type MenuRequest } from './PhotoContextMenu'
+import { SelectionBar } from './SelectionBar'
 
 const GAP = 6
 const PADDING = 12
@@ -239,6 +240,7 @@ export function Grid() {
 
   return (
     <>
+      <SelectionBar />
       <div
         ref={attachScroller}
         onPointerDown={dismiss}
@@ -284,3 +286,7 @@ export function Grid() {
     </>
   )
 }
+
+
+
+

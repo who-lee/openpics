@@ -92,6 +92,12 @@ interface LibraryState {
   setQuery: (query: string) => void
 
   select: (index: number, mode: 'replace' | 'toggle' | 'range') => void
+  /** Selects every currently visible photo. */
+  selectAll: () => void
+  /** Flips selection across the visible photos. */
+  invertSelection: () => void
+  /** Clears the selection and drops the anchor. */
+  clearSelection: () => void
   moveCursor: (delta: number, extend?: boolean) => void
   open: (index: number) => void
   /** Opens a picture and asks the viewer to start an edit session on it. */
@@ -459,6 +465,29 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       for (let i = lo; i <= hi; i++) selected.add(i)
     }
     set({ cursor: index, anchor: mode === 'range' ? anchor : index, selected })
+  },
+
+  selectAll() {
+    const { visible, cursor } = get()
+    set({
+      selected: new Set(visible),
+      anchor: -1,
+      cursor: visible.includes(cursor) ? cursor : (visible[0] ?? -1)
+    })
+  },
+
+  invertSelection() {
+    const { visible, selected } = get()
+    const next = new Set<number>()
+    for (const index of visible) {
+      if (!selected.has(index)) next.add(index)
+    }
+    set({ selected: next, anchor: -1 })
+  },
+
+  clearSelection() {
+    if (get().selected.size === 0 && get().anchor === -1) return
+    set({ selected: new Set(), anchor: -1 })
   },
 
   moveCursor(delta, extend = false) {
