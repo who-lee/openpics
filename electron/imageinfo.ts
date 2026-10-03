@@ -206,3 +206,142 @@ export function safeStat(path: string): { bytes: number; mtime: number } | null 
     return null
   }
 }
+
+/** The user-facing slice of EXIF this app reads. Absent tags stay absent. */
+export interface RawExif {
+  Make?: string
+  Model?: string
+  camera?: string
+  Software?: string
+  DateTime?: string
+  DateTimeOriginal?: string
+  Orientation?: number
+  FNumber?: number
+  ExposureTime?: number
+  ISO?: number
+  FocalLength?: number
+  LensModel?: string
+}
+
+const EXIF_TAGS: Record<number, keyof RawExif> = {
+  0x010f: 'Make',
+  0x0110: 'Model',
+  0x0131: 'Software',
+  0x0132: 'DateTime',
+  0x9003: 'DateTimeOriginal',
+  0x0112: 'Orientation',
+  0x829d: 'FNumber',
+  0x829a: 'ExposureTime',
+  0x8827: 'ISO',
+  0x920a: 'FocalLength',
+  0xa434: 'LensModel'
+}
+
+const EXIF_IFD_POINTER = 0x8769
+
+/**
+ * Locates the TIFF block that carries EXIF: the payload of a JPEG APP1 "Exif"
+ * segment, or the file itself when it is already a TIFF. Returns null when the
+ * header carries none, so a PNG or a bare BMP is an honest "no metadata".
+ */
+function findExifTiff(buf: Buffer): Buffer | null {
+  if (buf.length >= 4 && buf.readUInt16BE(0) === 0xffd8) {
+    let off = 2
+    while (off + 4 <= buf.length) {
+      if (buf[off] !== 0xff) {
+        off += 1
+        continue
+      }
+      const marker = buf[off + 1]!
+      if (marker === 0xd8 || marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+        off += 2
+        continue
+      }
+      if (marker === 0xda) break
+      const len = buf.readUInt16BE(off + 2)
+      if (marker === 0xe1 && off + 10 <= buf.length && buf.toString('ascii', off + 4, off + 10) === 'Exif\0\0') {
+        return buf.subarray(off + 10, off + 2 + len)
+      }
+      off += 2 + len
+    }
+    return null
+  }
+  if (buf.length < 8) return null
+  const magic = buf.toString('ascii', 0, 2) === 'II' ? buf.readUInt16LE(2) : buf.readUInt16BE(2)
+  return magic === 42 ? buf : null
+}
+
+function readAscii(tiff: Buffer, valueOffset: number, count: number): string {
+  const end = Math.min(valueOffset + count, tiff.length)
+  const raw = tiff.subarray(valueOffset, end).toString('utf8')
+  return raw.replace(/\0+$/, '').trim()
+}
+
+/** Reads one IFD's entries into `out`, recursing into the Exif sub-IFD once. */
+function readIfd(tiff: Buffer, ifdOffset: number, le: boolean, out: RawExif, depth: number): void {
+  if (depth > 2 || ifdOffset + 2 > tiff.length) return
+  const count = le ? tiff.readUInt16LE(ifdOffset) : tiff.readUInt16BE(ifdOffset)
+  for (let i = 0; i < count; i++) {
+    const entry = ifdOffset + 2 + i * 12
+    if (entry + 12 > tiff.length) return
+    const tag = le ? tiff.readUInt16LE(entry) : tiff.readUInt16BE(entry)
+    const type = le ? tiff.readUInt16LE(entry + 2) : tiff.readUInt16BE(entry + 2)
+    const valueCount = le ? tiff.readUInt32LE(entry + 4) : tiff.readUInt32BE(entry + 4)
+    // A value of four bytes or fewer sits inline; anything larger is an offset.
+    const inline = type === 3 || type === 8 ? 2 : 4
+    const valueOffset =
+      valueCount * inline <= 4
+        ? entry + 8
+        : le
+          ? tiff.readUInt32LE(entry + 8)
+          : tiff.readUInt32BE(entry + 8)
+
+    if (tag === EXIF_IFD_POINTER && type === 4) {
+      const sub = le ? tiff.readUInt32LE(entry + 8) : tiff.readUInt32BE(entry + 8)
+      readIfd(tiff, sub, le, out, depth + 1)
+      continue
+    }
+
+    const name = EXIF_TAGS[tag]
+    if (!name) continue
+    const read = (): string | number | undefined => {
+      if (type === 2) return readAscii(tiff, valueOffset, valueCount)
+      if (type === 3) return le ? tiff.readUInt16LE(valueOffset) : tiff.readUInt16BE(valueOffset)
+      if (type === 4) return le ? tiff.readUInt32LE(valueOffset) : tiff.readUInt32BE(valueOffset)
+      if ((type === 5 || type === 10) && valueOffset + 8 <= tiff.length) {
+        const num = type === 5
+          ? le ? tiff.readUInt32LE(valueOffset) : tiff.readUInt32BE(valueOffset)
+          : le ? tiff.readInt32LE(valueOffset) : tiff.readInt32BE(valueOffset)
+        const den = type === 5
+          ? le ? tiff.readUInt32LE(valueOffset + 4) : tiff.readUInt32BE(valueOffset + 4)
+          : le ? tiff.readInt32LE(valueOffset + 4) : tiff.readInt32BE(valueOffset + 4)
+        return den === 0 ? undefined : num / den
+      }
+      return undefined
+    }
+    const value = read()
+    if (value === undefined || value === '') continue
+    out[name] = value as never
+  }
+}
+
+/**
+ * Reads the small, human-interest slice of EXIF from a picture header. It never
+ * touches pixel data and never throws; an unreadable file simply has none.
+ */
+export function probeExif(path: string, ext: string): RawExif | null {
+  const buf = readHead(path)
+  if (!buf || buf.length < 8) return null
+  try {
+    const tiff = findExifTiff(buf)
+    if (!tiff || tiff.length < 8) return null
+    const le = tiff.toString('ascii', 0, 2) === 'II'
+    const firstIfd = le ? tiff.readUInt32LE(4) : tiff.readUInt32BE(4)
+    const out: RawExif = {}
+    readIfd(tiff, firstIfd, le, out, 0)
+    if (out.Model || out.Make) out.camera = out.Model ?? out.Make
+    return Object.keys(out).length > 0 ? out : null
+  } catch {
+    return null
+  }
+}

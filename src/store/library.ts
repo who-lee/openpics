@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
-import { DEFAULT_SETTINGS, comparePhotos, type DriveInfo, type Photo, type ScanProgress, type ScanResult, type Settings, type SmartCollection, type SortDir, type SortKey } from '@shared/protocol'
+import { DEFAULT_SETTINGS, comparePhotos, type DriveInfo, type Photo, type ScanProgress, type ScanResult, type Settings, type SmartCollection, type SmartCollectionRule, type SortDir, type SortKey } from '@shared/protocol'
 import { bridge } from '@/lib/bridge'
 
 export type ScanStatus = 'idle' | 'scanning' | 'ready' | 'error'
@@ -98,6 +98,18 @@ interface LibraryState {
   setCameraFilter: (camera: string) => void
   setTagFilter: (tags: string[]) => void
   clearAllFilters: () => void
+  /** Caches EXIF already read. */
+  setExif: (path: string, data: unknown) => void
+  /** Reads EXIF once from main and caches it, for the Details panel. */
+  loadExif: (path: string) => Promise<unknown>
+
+  // Smart collections
+  setActiveCollection: (id: string | null) => void
+  addCollection: (name: string) => SmartCollection
+  /** Creates a collection whose rules mirror the filters in force right now. */
+  addCollectionFromFilters: (name: string) => SmartCollection
+  removeCollection: (id: string) => void
+  renameCollection: (id: string, name: string) => void
 
   select: (index: number, mode: 'replace' | 'toggle' | 'range') => void
   /** Selects every currently visible photo. */
@@ -177,10 +189,13 @@ export interface FilterCriteria {
   sizeMax: number | null
   cameraFilter: string
   tagFilter: string[]
+  /** Rules of the active smart collection, or null when none is active. */
+  collectionRules: SmartCollectionRule[] | null
 }
 
 /** Pulls the filter slice out of the whole store state. */
 function criteriaOf(state: LibraryState): FilterCriteria {
+  const active = state.collections.find((c) => c.id === state.activeCollectionId && c.enabled)
   return {
     query: state.query,
     typeFilter: state.typeFilter,
@@ -189,7 +204,8 @@ function criteriaOf(state: LibraryState): FilterCriteria {
     sizeMin: state.sizeMin,
     sizeMax: state.sizeMax,
     cameraFilter: state.cameraFilter,
-    tagFilter: state.tagFilter
+    tagFilter: state.tagFilter,
+    collectionRules: active ? active.rules : null
   }
 }
 
@@ -243,7 +259,80 @@ function matchesFilters(
     const owned = tags.get(photo.path) ?? []
     if (!filters.tagFilter.every((tag) => owned.includes(tag))) return false
   }
+  if (filters.collectionRules && filters.collectionRules.length > 0) {
+    if (!filters.collectionRules.every((rule) => matchesRule(photo, rule, tags, exif))) return false
+  }
   return true
+}
+
+/** True when one smart-collection rule accepts a photo. Unknown fields reject. */
+function matchesRule(
+  photo: Photo,
+  rule: SmartCollectionRule,
+  tags: Map<string, string[]>,
+  exif: Map<string, unknown>
+): boolean {
+  const value = rule.value
+  switch (rule.field) {
+    case 'tag': {
+      const owned = tags.get(photo.path) ?? []
+      const wanted = String(value)
+      const has = owned.includes(wanted)
+      return rule.op === 'neq' ? !has : has
+    }
+    case 'camera':
+    case 'cameraMake':
+    case 'cameraModel': {
+      const camera = cameraOf(exif, photo.path).toLowerCase()
+      const wanted = String(value).toLowerCase()
+      if (rule.op === 'contains') return camera.includes(wanted)
+      if (rule.op === 'neq') return camera !== wanted
+      return camera === wanted
+    }
+    case 'name': {
+      const name = photo.name.toLowerCase()
+      const wanted = String(value).toLowerCase()
+      if (rule.op === 'contains') return name.includes(wanted)
+      if (rule.op === 'neq') return name !== wanted
+      return name === wanted
+    }
+    case 'type': {
+      const kind = photo.kind
+      const wanted = String(value) === 'image' ? 'photo' : String(value)
+      return rule.op === 'neq' ? kind !== wanted : kind === wanted
+    }
+    case 'orientation': {
+      const orientation =
+        photo.width > photo.height
+          ? 'landscape'
+          : photo.width < photo.height
+            ? 'portrait'
+            : 'square'
+      return rule.op === 'neq' ? orientation !== String(value) : orientation === String(value)
+    }
+    case 'date': {
+      if (rule.op === 'between' && Array.isArray(value)) {
+        return photo.mtime >= value[0] && photo.mtime <= value[1]
+      }
+      const wanted = Number(value)
+      if (rule.op === 'gte') return photo.mtime >= wanted
+      if (rule.op === 'lte') return photo.mtime <= wanted
+      if (rule.op === 'neq') return photo.mtime !== wanted
+      return photo.mtime === wanted
+    }
+    case 'size': {
+      if (rule.op === 'between' && Array.isArray(value)) {
+        return photo.bytes >= value[0] && photo.bytes <= value[1]
+      }
+      const wanted = Number(value)
+      if (rule.op === 'gte') return photo.bytes >= wanted
+      if (rule.op === 'lte') return photo.bytes <= wanted
+      if (rule.op === 'neq') return photo.bytes !== wanted
+      return photo.bytes === wanted
+    }
+    default:
+      return true
+  }
 }
 
 function visibleIndices(
@@ -403,7 +492,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   async boot() {
     const settings = await bridge.settings.get()
-    set({ settings })
+    set({ settings, collections: settings.aiCollections ?? [] })
     // Probing 26 drive letters is cheap, and knowing what is attached before the
     // user reaches for the button avoids a "no drives" surprise.
     const drives = await bridge.library.drives()
@@ -522,7 +611,19 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     const photos = sortChanged
       ? sortPhotos(state.raw, settings.sortKey, settings.sortDir)
       : state.photos
-    set({ settings, photos, visible: visibleIndices(photos, criteriaOf(state), state.photoTags, state.exifCache) })
+    const collections = patch.aiCollections !== undefined ? (settings.aiCollections ?? []) : state.collections
+    const activeCollectionId =
+      state.activeCollectionId !== null && collections.some((c) => c.id === state.activeCollectionId)
+        ? state.activeCollectionId
+        : null
+    const criteria = { ...criteriaOf(state), collectionRules: collections.find((c) => c.id === activeCollectionId && c.enabled)?.rules ?? null }
+    set({
+      settings,
+      collections,
+      activeCollectionId,
+      photos,
+      visible: visibleIndices(photos, criteria, state.photoTags, state.exifCache)
+    })
     // Which source and how deep to walk both decide what exists on disk, so any
     // change to them has to re-read from disk rather than relabel the old set.
     if (patch.root !== undefined || patch.recursive !== undefined || patch.scanMode !== undefined) {
@@ -577,6 +678,87 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       cameraFilter: '',
       tagFilter: []
     })
+  },
+
+  setExif(path, data) {
+    set({ exifCache: new Map(get().exifCache).set(path, data) })
+  },
+
+  async loadExif(path) {
+    const cached = get().exifCache.get(path)
+    if (cached !== undefined) return cached
+    const data = await bridge.library.exif(path)
+    const state = get()
+    set({ exifCache: new Map(state.exifCache).set(path, data) })
+    // A newly known camera can change what matches the camera filter or a
+    // collection rule, so recompute the view without disturbing the selection.
+    if (state.cameraFilter.trim() !== '' || state.collections.some((c) => c.enabled && c.id === state.activeCollectionId && c.rules.some((r) => r.field.startsWith('camera')))) {
+      const next = get()
+      set({ visible: visibleIndices(next.photos, criteriaOf(next), next.photoTags, next.exifCache) })
+    }
+    return data
+  },
+
+  setActiveCollection(id) {
+    set({ activeCollectionId: id })
+    applyFilterChange(get, set, {})
+  },
+
+  addCollection(name) {
+    const collection: SmartCollection = {
+      id: `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      name: name.trim() || 'Untitled collection',
+      rules: [],
+      enabled: true
+    }
+    const collections = [...get().collections, collection]
+    set({ collections })
+    void get().patch({ aiCollections: collections })
+    return collection
+  },
+
+  addCollectionFromFilters(name) {
+    const state = get()
+    const rules: SmartCollectionRule[] = []
+    if (state.typeFilter !== 'all') rules.push({ field: 'type', op: 'eq', value: state.typeFilter })
+    if (state.dateStart !== null) rules.push({ field: 'date', op: 'gte', value: state.dateStart })
+    if (state.dateEnd !== null) rules.push({ field: 'date', op: 'lte', value: state.dateEnd })
+    if (state.sizeMin !== null) rules.push({ field: 'size', op: 'gte', value: state.sizeMin })
+    if (state.sizeMax !== null) rules.push({ field: 'size', op: 'lte', value: state.sizeMax })
+    if (state.cameraFilter.trim() !== '') {
+      rules.push({ field: 'camera', op: 'contains', value: state.cameraFilter.trim() })
+    }
+    for (const tag of state.tagFilter) rules.push({ field: 'tag', op: 'eq', value: tag })
+    if (state.query.trim() !== '') rules.push({ field: 'name', op: 'contains', value: state.query.trim() })
+    const collection: SmartCollection = {
+      id: `sc-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      name: name.trim() || 'Untitled collection',
+      rules,
+      enabled: true
+    }
+    const collections = [...state.collections, collection]
+    set({ collections, activeCollectionId: collection.id })
+    void get().patch({ aiCollections: collections })
+    applyFilterChange(get, set, {})
+    return collection
+  },
+
+  removeCollection(id) {
+    const collections = get().collections.filter((c) => c.id !== id)
+    set({
+      collections,
+      activeCollectionId: get().activeCollectionId === id ? null : get().activeCollectionId
+    })
+    void get().patch({ aiCollections: collections })
+    applyFilterChange(get, set, {})
+  },
+
+  renameCollection(id, name) {
+    const trimmed = name.trim()
+    if (trimmed === '') return
+    const collections = get().collections.map((c) => (c.id === id ? { ...c, name: trimmed } : c))
+    set({ collections })
+    void get().patch({ aiCollections: collections })
   },
 
   select(index, mode) {

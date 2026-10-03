@@ -1,6 +1,7 @@
 import type {
   BinResult,
   DriveInfo,
+  ExifData,
   ScanProgress,
   ScanResult,
   Settings,
@@ -67,6 +68,8 @@ export interface OpenPicsBridge {
     /** Stops a walk in progress; its partial result is still returned. */
     cancelScan(): Promise<void>,
     thumbStats(): Promise<ThumbnailStats>
+    /** Reads a picture's EXIF, or null when it carries none. */
+    exif(path: string): Promise<ExifData | null>
     /** Live progress for a long walk. Returns an unsubscribe function. */
     onScanProgress(handler: (progress: ScanProgress) => void): () => void
     /**

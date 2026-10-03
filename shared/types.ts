@@ -37,6 +37,27 @@ export interface Photo {
   relDir: string
 }
 
+/**
+ * The slice of EXIF the app shows and filters on. Every field is optional
+ * because a picture may carry none of it, and an absent tag is different from a
+ * tag whose value is zero.
+ */
+export interface ExifData {
+  Make?: string
+  Model?: string
+  /** Camera as the app prefers to show it: the model, or the make when alone. */
+  camera?: string
+  Software?: string
+  DateTime?: string
+  DateTimeOriginal?: string
+  Orientation?: number
+  FNumber?: number
+  ExposureTime?: number
+  ISO?: number
+  FocalLength?: number
+  LensModel?: string
+}
+
 /** Where the library comes from: one chosen folder, or every drive on the machine. */
 export type ScanMode = 'folder' | 'computer'
 

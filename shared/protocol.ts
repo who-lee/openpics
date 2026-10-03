@@ -146,7 +146,7 @@ export function comparePhotos(a: Photo, b: Photo, key: SortKey, dir: SortDir): n
   }
 }
 
-export type { Photo, Settings, SmartCollection, SmartCollectionRule, SortDir, SortKey } from './types'
+export type { ExifData, Photo, Settings, SmartCollection, SmartCollectionRule, SortDir, SortKey } from './types'
 
 export type {
   BinResult,

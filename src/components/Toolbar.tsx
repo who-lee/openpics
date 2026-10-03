@@ -17,6 +17,7 @@ import type { ScanMode, SortKey } from '@shared/protocol'
 import { useLibrary } from '@/store/library'
 import { formatCount } from '@/lib/format'
 import { IconButton, Segmented, Toggle } from './ui'
+import { SmartCollectionsMenu } from './SmartCollectionsMenu'
 
 const SORT_OPTIONS: { value: SortKey; label: string; title: string }[] = [
   { value: 'name', label: 'Name', title: 'Sort by file name' },
@@ -167,6 +168,8 @@ export function Toolbar() {
         checked={settings.recursive}
         onChange={(value) => void patch({ recursive: value })}
       />
+
+      <SmartCollectionsMenu />
 
       <div className="ml-auto flex items-center gap-1">
         <IconButton

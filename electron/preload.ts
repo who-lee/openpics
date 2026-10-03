@@ -47,6 +47,7 @@ const bridge: OpenPicsBridge = {
     scanComputer: () => ipcRenderer.invoke('library:scan-computer'),
     cancelScan: () => ipcRenderer.invoke('library:cancel-scan'),
     thumbStats: () => ipcRenderer.invoke('thumb:stats'),
+    exif: (path) => ipcRenderer.invoke('library:exif', path),
     onScanProgress: (handler) => subscribe(SCAN_PROGRESS_CHANNEL, handler),
     onOpenFiles: (handler) => {
       openFilesHandler = handler

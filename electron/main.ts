@@ -1,6 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from 'electron'
 import { statSync } from 'node:fs'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, extname, join, resolve } from 'node:path'
 import type { DriveInfo, ScanProgress, ScanResult, Settings, ThumbnailStats, WallpaperFit } from '../shared/protocol'
 import type {
   ApplyOptions,
@@ -30,6 +30,7 @@ import {
   handleUndo
 } from './editing'
 import { clearThumbMemory, registerThumbScheme, setAllowedRoots, thumbStats } from './thumbs'
+import { probeExif } from './imageinfo'
 import { defaultRoot, loadSettings, saveSettings } from './settings'
 import {
   attachTerminal,
@@ -317,6 +318,8 @@ function wireIpc(): void {
   })
 
   ipcMain.handle('thumb:stats', (): ThumbnailStats => ({ ...thumbStats }))
+
+  ipcMain.handle('library:exif', (_event, path: string) => probeExif(path, extname(path).slice(1)))
 
   ipcMain.handle('edit:cutout-auto', (_e, path: string, options: CutoutOptions) => handleCutoutAuto(path, options))
   ipcMain.handle('edit:open', (_e, path: string, edit?: string) => handleOpen(path, edit))
