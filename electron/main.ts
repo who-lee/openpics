@@ -237,6 +237,8 @@ function sendProgress(progress: ScanProgress): void {
   if (win && !win.isDestroyed()) win.webContents.send(SCAN_PROGRESS_CHANNEL, progress)
 }
 
+import { autotagPhoto, ensurePromptFile, findBundledModels, getAiState, initAi, pickDefaultModel } from './ai'
+
 function wireIpc(): void {
   ipcMain.handle('settings:get', () => loadSettings())
 
@@ -330,6 +332,45 @@ function wireIpc(): void {
   ipcMain.handle('edit:reset', (_e, edit: string) => handleReset(edit))
   ipcMain.handle('edit:close', (_e, edit: string) => handleClose(edit))
 
+  ipcMain.handle('ai:init', async () => {
+    const state = await initAi()
+    return state
+  })
+
+  ipcMain.handle('ai:state', async () => getAiState())
+
+  ipcMain.handle('ai:listModels', async () => findBundledModels())
+
+  ipcMain.handle('ai:setModel', async (_e, path: string) => {
+    const s = getAiState()
+    const next = { ...s, modelPath: path, modelName: path.split(/[\\\\\\/]/).pop() || null, ready: !!path }
+    return next
+  })
+
+  ipcMain.handle('ai:getPrompt', async () => {
+    const p = await ensurePromptFile()
+    const { readPromptFile } = await import('./ai/prompt')
+    return { path: p, content: readPromptFile() }
+  })
+
+  ipcMain.handle('ai:setPrompt', async (_e, content: string) => {
+    const { writePromptFile } = await import('./ai/prompt')
+    await writePromptFile(content)
+    const p = await ensurePromptFile()
+    const { readPromptFile } = await import('./ai/prompt')
+    return { path: p, content: readPromptFile() }
+  })
+
+  ipcMain.handle('ai:chat', async (_e, message: string) => {
+    // Placeholder: return acknowledgment; real llama.cpp integration later
+    return { content: '' }
+  })
+
+  ipcMain.handle('ai:autotag', async (_e, photoIds: string[]) => {
+    const res: Array<{ photoId: string; tags: string[] }> = []
+    for (const id of photoIds) res.push({ photoId: id, tags: [] })
+    return res
+  })
   ipcMain.handle('wallpaper:get', () => getWallpaper())
   // Deliberately not debounced or rate-limited: the user asked for this desktop
   // and is watching it change. Nothing else in the app calls it.
@@ -487,3 +528,6 @@ if (!app.requestSingleInstanceLock()) {
     app.quit()
   })
 }
+
+
+

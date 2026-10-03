@@ -9,6 +9,12 @@ import type {
   WallpaperState
 } from './protocol'
 import type {
+  AiChatContext,
+  AiChatReply,
+  AiModelInfo,
+  AiState
+} from './ai-types'
+import type {
   ApplyOptions,
   BrushOptions,
   BrushReply,
@@ -47,19 +53,19 @@ import type {
  */
 export interface OpenPicsBridge {
   settings: {
-    get(): Promise<Settings>
-    patch(patch: Partial<Settings>): Promise<Settings>
+    get(): Promise<Settings>,
+    patch(patch: Partial<Settings>): Promise<Settings>,
   }
   library: {
-    defaultRoot(): Promise<string>
-    pick(): Promise<{ canceled: boolean; path?: string }>
+    defaultRoot(): Promise<string>,
+    pick(): Promise<{ canceled: boolean; path?: string }>,
     scan(root: string, recursive: boolean): Promise<ScanResult>
     /** Every readable drive, for the "scan this PC" source. */
     drives(): Promise<DriveInfo[]>
     /** Walks every drive. Resolves when the walk ends or is cancelled. */
     scanComputer(): Promise<ScanResult>
     /** Stops a walk in progress; its partial result is still returned. */
-    cancelScan(): Promise<void>
+    cancelScan(): Promise<void>,
     thumbStats(): Promise<ThumbnailStats>
     /** Live progress for a long walk. Returns an unsubscribe function. */
     onScanProgress(handler: (progress: ScanProgress) => void): () => void
@@ -107,7 +113,7 @@ export interface OpenPicsBridge {
       settings: OutputSettings | null
     ): Promise<{ info: EditInfo; projected: { width: number; height: number } }>
     /** Steps back or replays one change to the selection. */
-    undo(edit: string): Promise<HistoryReply>
+    undo(edit: string): Promise<HistoryReply>,
     redo(edit: string): Promise<HistoryReply>
     /** What undo and redo currently have to work with. */
     history(edit: string): Promise<HistoryState>
@@ -120,7 +126,7 @@ export interface OpenPicsBridge {
     /** Throws the work away and returns the session to how it was opened. */
     reset(edit: string): Promise<EditInfo>
     /** Releases a session's memory early. */
-    close(edit: string): Promise<boolean>
+    close(edit: string): Promise<boolean>,
   }
   /**
    * The desktop background.
@@ -132,7 +138,7 @@ export interface OpenPicsBridge {
   wallpaper: {
     get(): Promise<WallpaperState>
     /** Changes every desktop. Only ever called from an explicit user action. */
-    set(path: string, fit?: WallpaperFit): Promise<void>
+    set(path: string, fit?: WallpaperFit): Promise<void>,
   }
   /**
    * A real shell, attached to a pseudoterminal in the main process.
@@ -144,18 +150,18 @@ export interface OpenPicsBridge {
    */
   terminal: {
     /** Whether the PTY engine loaded on this machine. */
-    available(): Promise<boolean>
+    available(): Promise<boolean>,
     create(options?: TerminalCreateOptions): Promise<TerminalSessionInfo>
     /** Consumes the pre-attach backlog and starts the live stream. */
-    attach(id: string): Promise<TerminalAttachResult>
-    write(id: string, data: string): Promise<void>
-    resize(id: string, cols: number, rows: number): Promise<void>
-    kill(id: string): Promise<void>
+    attach(id: string): Promise<TerminalAttachResult>,
+    write(id: string, data: string): Promise<void>,
+    resize(id: string, cols: number, rows: number): Promise<void>,
+    kill(id: string): Promise<void>,
     onData(handler: (event: TerminalDataEvent) => void): () => void
     onExit(handler: (event: TerminalExitEvent) => void): () => void
   }
   shell: {
-    reveal(path: string): Promise<void>
+    reveal(path: string): Promise<void>,
     open(path: string): Promise<void>
     /** Opens a URL in the user's own browser. The only way out of the sandbox. */
     openUrl(url: string): Promise<void>
@@ -172,8 +178,8 @@ export interface OpenPicsBridge {
      * Adds or removes the context-menu and Open With entries under HKCU.
      * Resolves to the resulting state.
      */
-    setFileAssociations(enabled: boolean): Promise<boolean>
-    fileAssociations(): Promise<boolean>
+    setFileAssociations(enabled: boolean): Promise<boolean>,
+    fileAssociations(): Promise<boolean>,
   }
   /**
    * External tools the app can use.
@@ -196,7 +202,7 @@ export interface OpenPicsBridge {
     /** Probes every tool and reports what answered. Cached inside main. */
     list(): Promise<AddonStatus[]>
     /** Probes again, for after the user installed something new. */
-    refresh(): Promise<AddonStatus[]>
+    refresh(): Promise<AddonStatus[]>,
   }
   /**
    * Video.
@@ -209,24 +215,43 @@ export interface OpenPicsBridge {
    */
   video: {
     /** Reads duration, size and streams. The call the UI makes when a clip opens. */
-    probe(path: string): Promise<VideoInfo>
-    trim(request: TrimRequest): Promise<VideoOutput>
-    split(request: SplitRequest): Promise<VideoOutput[]>
+    probe(path: string): Promise<VideoInfo>,
+    trim(request: TrimRequest): Promise<VideoOutput>,
+    split(request: SplitRequest): Promise<VideoOutput[]>,
     concat(request: ConcatRequest): Promise<VideoOutput>
     /** Grabs one still frame, for a thumbnail or a contact sheet. */
-    frame(request: FrameRequest): Promise<VideoOutput & { atSeconds: number }>
+    frame(request: FrameRequest): Promise<VideoOutput & { atSeconds: number }>,
   }
   win: {
-    alwaysOnTop(value: boolean): Promise<boolean>
-    fullscreen(value: boolean): Promise<boolean>
-    hide(): Promise<void>
-    show(): Promise<void>
-    minimize(): Promise<void>
-    toggleMaximize(): Promise<boolean>
-    state(): Promise<{ maximized: boolean; fullScreen: boolean; visible: boolean }>
-    quit(): Promise<void>
+    alwaysOnTop(value: boolean): Promise<boolean>,
+    fullscreen(value: boolean): Promise<boolean>,
+    hide(): Promise<void>,
+    show(): Promise<void>,
+    minimize(): Promise<void>,
+    toggleMaximize(): Promise<boolean>,
+    state(): Promise<{ maximized: boolean; fullScreen: boolean; visible: boolean }>,
+    quit(): Promise<void>,
   }
-  onCommand(handler: (command: string) => void): () => void
+  onCommand(handler: (command: string) => void): () => void,
+  /** Local AI (llama.cpp, fully local). */
+  ai: {
+    /** Initialize/load model and ensure prompt file exists. */
+    init(): Promise<AiState>,
+    /** Get current AI state. */
+    state(): Promise<AiState>,
+    /** List bundled models found in extraResources/models. */
+    listModels(): Promise<AiModelInfo[]>,
+    /** Set active model path (persisted in settings where appropriate). */
+    setModel(path: string): Promise<AiState>,
+    /** Get user-editable prompt path and contents. */
+    getPrompt(): Promise<{ path: string; content: string }>,
+    /** Write user-editable prompt contents. */
+    setPrompt(content: string): Promise<{ path: string; content: string }>,
+    /** Chat with AI (non-streaming placeholder for scaffold). */
+    chat(message: string, context?: AiChatContext): Promise<AiChatReply>,
+    /** Toggle auto-tagging for selection or library scope (placeholder). */
+    autotag(photoIds: string[]): Promise<Array<{ photoId: string; tags: string[] }>>
+  }
 }
 
 export const COMMAND = {
@@ -237,7 +262,7 @@ export const COMMAND = {
   next: 'next',
   previous: 'previous',
   slideshow: 'slideshow',
-  info: 'info'
+  info: 'info',
 } as const
 
 export type Command = (typeof COMMAND)[keyof typeof COMMAND]
@@ -247,3 +272,8 @@ export const SCAN_PROGRESS_CHANNEL = 'opencpics:scan-progress'
 export const OPEN_FILES_CHANNEL = 'opencpics:open-files'
 export const TERMINAL_DATA_CHANNEL = 'opencpics:terminal-data'
 export const TERMINAL_EXIT_CHANNEL = 'opencpics:terminal-exit'
+
+
+
+
+

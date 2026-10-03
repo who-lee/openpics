@@ -108,7 +108,17 @@ const bridge: OpenPicsBridge = {
     trim: (request) => ipcRenderer.invoke('video:trim', request),
     split: (request) => ipcRenderer.invoke('video:split', request),
     concat: (request) => ipcRenderer.invoke('video:concat', request),
-    frame: (request) => ipcRenderer.invoke('video:frame', request)
+    frame: (request) => ipcRenderer.invoke('video:frame', request),
+  },
+  ai: {
+    init: () => ipcRenderer.invoke('ai:init'),
+    state: () => ipcRenderer.invoke('ai:state'),
+    listModels: () => ipcRenderer.invoke('ai:listModels'),
+    setModel: (path: string) => ipcRenderer.invoke('ai:setModel', path),
+    getPrompt: () => ipcRenderer.invoke('ai:getPrompt'),
+    setPrompt: (content: string) => ipcRenderer.invoke('ai:setPrompt', content),
+    chat: (message: string, context?: any) => ipcRenderer.invoke('ai:chat', message, context),
+    autotag: (photoIds: string[]) => ipcRenderer.invoke('ai:autotag', photoIds)
   },
   win: {
     alwaysOnTop: (value) => ipcRenderer.invoke('win:always-on-top', value),
@@ -126,3 +136,8 @@ const bridge: OpenPicsBridge = {
 }
 
 contextBridge.exposeInMainWorld('opencpics', bridge)
+
+
+
+
+
